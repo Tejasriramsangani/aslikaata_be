@@ -17,13 +17,13 @@ export class AuditLog {
   @Prop({ required: true })
   resource: string;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   resourceId?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   ipAddress?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   userAgent?: string | null;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })

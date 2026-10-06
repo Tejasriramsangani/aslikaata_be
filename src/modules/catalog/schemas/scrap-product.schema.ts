@@ -14,10 +14,10 @@ export class ScrapProduct {
   @Prop({ required: true, unique: true, uppercase: true, trim: true })
   code: string; // IRON, COPPER, NEWSPAPER
 
-  @Prop({ default: '' })
+  @Prop({ type: String, default: '' })
   description?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   imageUrl?: string | null;
 
   @Prop({ default: true })

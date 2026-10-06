@@ -22,7 +22,7 @@ export class Address {
   @Prop({ required: true, trim: true })
   line1: string;
 
-  @Prop({ default: '', trim: true })
+  @Prop({ type: String, default: '', trim: true })
   line2?: string | null;
 
   @Prop({ required: true, trim: true })
@@ -40,7 +40,7 @@ export class Address {
   @Prop({ default: false })
   isDefault: boolean;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   landmark?: string | null;
 }
 

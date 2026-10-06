@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -10,6 +11,7 @@ import { Pickup, PickupDocument } from './schemas/pickup.schema.js';
 import { PickupEvent, PickupEventDocument } from './schemas/pickup-event.schema.js';
 import { PickupStatus } from './schemas/pickup-status.enum.js';
 import { UserRole } from '../../common/decorators/roles.decorator.js';
+import { OutboxService } from '../outbox/outbox.service.js';
 
 export interface TransitionContext {
   pickup: PickupDocument;
@@ -30,6 +32,7 @@ export class PickupStateMachineService {
   constructor(
     @InjectModel(PickupEvent.name)
     private readonly eventModel: Model<PickupEventDocument>,
+    @Optional() private readonly outboxService?: OutboxService,
   ) {}
 
   /**
@@ -86,13 +89,34 @@ export class PickupStateMachineService {
 
       case PickupStatus.ON_THE_WAY:
       case PickupStatus.ARRIVED:
-        if (actor.role !== UserRole.EMPLOYEE) {
-          throw new ForbiddenException('Only the assigned employee can update transit status');
+      case PickupStatus.VERIFIED:
+      case PickupStatus.IN_PROGRESS:
+      case PickupStatus.MEASURED:
+      case PickupStatus.SETTLED:
+        if (actor.role !== UserRole.EMPLOYEE && actor.role !== 'SYSTEM') {
+          throw new ForbiddenException('Only the assigned employee can perform this field action');
         }
         if (pickup.assignment?.employeeProfileId && payload?.employeeProfileId) {
           if (pickup.assignment.employeeProfileId.toString() !== payload.employeeProfileId.toString()) {
             throw new ForbiddenException('Only the assigned employee for this pickup can take action');
           }
+        }
+        break;
+
+      case PickupStatus.OTP_VERIFIED:
+      case PickupStatus.INVOICED:
+      case PickupStatus.COMPLETED:
+        if (actor.role !== UserRole.EMPLOYEE && actor.role !== 'SYSTEM') {
+          throw new ForbiddenException('Only the assigned employee or system can complete the pickup');
+        }
+        break;
+
+      case PickupStatus.CUSTOMER_CONFIRMED:
+        if (actor.role !== UserRole.CUSTOMER) {
+          throw new ForbiddenException('Only the customer can approve the pickup summary');
+        }
+        if (pickup.customerId.toString() !== actor.userId) {
+          throw new ForbiddenException('You can only approve summaries for your own pickups');
         }
         break;
 
@@ -166,6 +190,18 @@ export class PickupStateMachineService {
     this.logger.log(
       `Pickup ${pickup.pickupCode} transitioned from ${fromStatus} -> ${toStatus} by ${actor.role}`,
     );
+
+    if (this.outboxService) {
+      await this.outboxService.createEvent('pickup.status_changed', {
+        pickupId: pickup._id.toString(),
+        pickupCode: pickup.pickupCode,
+        customerId: pickup.customerId,
+        fromStatus,
+        toStatus,
+        actorRole: actor.role,
+        reason: reason || null,
+      });
+    }
 
     return pickup;
   }

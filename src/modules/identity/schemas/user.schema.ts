@@ -22,7 +22,7 @@ export class User {
   })
   roles: UserRole[];
 
-  @Prop({ required: true, enum: UserStatus, default: UserStatus.ACTIVE })
+  @Prop({ type: String, required: true, enum: UserStatus, default: UserStatus.ACTIVE })
   status: UserStatus;
 
   @Prop({ default: '1.0' })
@@ -31,13 +31,13 @@ export class User {
   @Prop({ default: () => new Date() })
   termsAcceptedAt: Date;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   lastLoginAt?: Date | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   deletedAt?: Date | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   anonymizedAt?: Date | null;
 }
 

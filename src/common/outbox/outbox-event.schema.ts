@@ -18,13 +18,13 @@ export class OutboxEvent {
   @Prop({ type: MongooseSchema.Types.Mixed, required: true })
   payload: Record<string, any>;
 
-  @Prop({ required: true, enum: OutboxStatus, default: OutboxStatus.PENDING })
+  @Prop({ type: String, required: true, enum: OutboxStatus, default: OutboxStatus.PENDING })
   status: OutboxStatus;
 
-  @Prop({ default: 0 })
+  @Prop({ type: Number, default: 0 })
   retryCount: number;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   error?: string;
 }
 

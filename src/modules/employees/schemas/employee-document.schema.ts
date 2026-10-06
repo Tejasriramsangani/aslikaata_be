@@ -20,7 +20,7 @@ export class EmployeeDocument {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'EmployeeProfile', required: true, index: true })
   employeeProfileId: string;
 
-  @Prop({ required: true, enum: DocType })
+  @Prop({ type: String, required: true, enum: DocType })
   docType: DocType;
 
   @Prop({ required: true })
@@ -38,19 +38,19 @@ export class EmployeeDocument {
   @Prop({ default: true })
   isCurrent: boolean;
 
-  @Prop({ required: true, enum: DocumentStatus, default: DocumentStatus.PENDING, index: true })
+  @Prop({ type: String, required: true, enum: DocumentStatus, default: DocumentStatus.PENDING, index: true })
   status: DocumentStatus;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   rejectionReason?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   expiresOn?: Date | null;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', default: null })
   reviewedBy?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   reviewedAt?: Date | null;
 }
 

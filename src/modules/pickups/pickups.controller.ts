@@ -16,6 +16,11 @@ import {
   CancelPickupDto,
   FailPickupDto,
 } from './dto/pickup.dto.js';
+import {
+  VerifyQrDto,
+  RecordItemsDto,
+  ApproveSummaryDto,
+} from './dto/field-ops.dto.js';
 import { PickupStatus } from './schemas/pickup-status.enum.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
@@ -59,6 +64,34 @@ export class PickupsController {
   }
 
   @Roles(UserRole.CUSTOMER)
+  @Get('customer/pickups/:id/qr')
+  async getQrToken(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+  ) {
+    return this.pickupsService.generateQrToken(pickupId, user.userId);
+  }
+
+  @Roles(UserRole.CUSTOMER)
+  @Get('customer/pickups/:id/summary')
+  async getSummary(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+  ) {
+    return this.pickupsService.getSummary(pickupId, user.userId);
+  }
+
+  @Roles(UserRole.CUSTOMER)
+  @Post('customer/pickups/:id/approve')
+  async approveSummary(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+    @Body() dto: ApproveSummaryDto,
+  ) {
+    return this.pickupsService.approveSummary(pickupId, user.userId, dto);
+  }
+
+  @Roles(UserRole.CUSTOMER)
   @Post('customer/pickups/:id/cancel')
   async customerCancelPickup(
     @CurrentUser() user: CurrentUserPayload,
@@ -95,6 +128,35 @@ export class PickupsController {
     @Param('id') pickupId: string,
   ) {
     return this.pickupsService.markArrived(pickupId, user.userId);
+  }
+
+  @Roles(UserRole.EMPLOYEE)
+  @Post('employee/pickups/:id/verify-qr')
+  async verifyQr(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+    @Body() dto: VerifyQrDto,
+  ) {
+    return this.pickupsService.verifyQrToken(pickupId, user.userId, dto);
+  }
+
+  @Roles(UserRole.EMPLOYEE)
+  @Post('employee/pickups/:id/start')
+  async startPickup(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+  ) {
+    return this.pickupsService.startPickup(pickupId, user.userId);
+  }
+
+  @Roles(UserRole.EMPLOYEE)
+  @Post('employee/pickups/:id/items')
+  async recordItems(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+    @Body() dto: RecordItemsDto,
+  ) {
+    return this.pickupsService.recordItems(pickupId, user.userId, dto);
   }
 
   @Roles(UserRole.EMPLOYEE)

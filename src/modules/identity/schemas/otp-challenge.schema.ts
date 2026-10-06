@@ -13,7 +13,7 @@ export class OtpChallenge {
   @Prop({ required: true, index: true })
   mobile: string;
 
-  @Prop({ required: true, enum: OtpPurpose })
+  @Prop({ type: String, required: true, enum: OtpPurpose })
   purpose: OtpPurpose;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Pickup', default: null })
@@ -37,7 +37,7 @@ export class OtpChallenge {
   @Prop({ required: true })
   resendCooldownUntil: Date;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   consumedAt?: Date | null;
 }
 

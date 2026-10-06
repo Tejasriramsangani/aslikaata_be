@@ -22,31 +22,31 @@ export class EmployeeProfile {
   @Prop({ required: true, trim: true })
   fullName: string;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   dateOfBirth?: Date | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   gender?: string | null;
 
-  @Prop({ required: true, enum: EmployeeStatus, default: EmployeeStatus.ONBOARDING, index: true })
+  @Prop({ type: String, required: true, enum: EmployeeStatus, default: EmployeeStatus.ONBOARDING, index: true })
   status: EmployeeStatus;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   vehicleType?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   vehicleNumber?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   approvedAt?: Date | null;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', default: null })
   approvedBy?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   suspendedReason?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   activeDeviceId?: string | null;
 }
 

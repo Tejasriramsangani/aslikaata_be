@@ -14,7 +14,7 @@ export class AdminCredential {
   @Prop({ required: true })
   passwordHash: string;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   totpSecretEnc?: string | null;
 
   @Prop({ default: false })
@@ -23,7 +23,7 @@ export class AdminCredential {
   @Prop({ default: 0 })
   failedLoginAttempts: number;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   lockedUntil?: Date | null;
 }
 

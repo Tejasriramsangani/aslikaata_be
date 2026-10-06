@@ -11,10 +11,10 @@ export class CustomerProfile {
   @Prop({ required: true, trim: true })
   fullName: string;
 
-  @Prop({ default: null, trim: true, lowercase: true })
+  @Prop({ type: String, default: null, trim: true, lowercase: true })
   email?: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   dateOfBirth?: Date | null;
 }
 

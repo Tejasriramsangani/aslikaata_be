@@ -21,7 +21,7 @@ export class ScrapRate {
   /**
    * Effective end date. If null, this is the currently active rate.
    */
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   effectiveTo?: Date | null;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })

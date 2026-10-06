@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -27,6 +28,7 @@ import {
 import { SequenceService } from '../../common/database/sequence.service.js';
 import { CryptoUtil } from '../../common/utils/crypto.util.js';
 import { AuditLog, AuditLogDocument } from '../../common/audit/audit-log.schema.js';
+import { OutboxService } from '../outbox/outbox.service.js';
 
 @Injectable()
 export class EmployeesService {
@@ -40,6 +42,7 @@ export class EmployeesService {
     @InjectModel(AuditLog.name)
     private readonly auditLogModel: Model<AuditLogDocument>,
     private readonly sequenceService: SequenceService,
+    @Optional() private readonly outboxService?: OutboxService,
   ) {}
 
   /**
@@ -177,6 +180,16 @@ export class EmployeesService {
     doc.reviewedAt = new Date();
     await doc.save();
 
+    if (dto.status === DocumentStatus.REJECTED && this.outboxService) {
+      const profile = await this.profileModel.findById(doc.employeeProfileId);
+      await this.outboxService.createEvent('employee.document_rejected', {
+        employeeProfileId: doc.employeeProfileId,
+        employeeUserId: profile?.userId,
+        docType: doc.docType,
+        rejectionReason: doc.rejectionReason,
+      });
+    }
+
     return doc;
   }
 
@@ -220,6 +233,15 @@ export class EmployeesService {
     profile.approvedBy = adminUserId;
     profile.suspendedReason = undefined;
     await profile.save();
+
+    if (this.outboxService) {
+      await this.outboxService.createEvent('employee.approved', {
+        employeeProfileId: profile._id.toString(),
+        employeeUserId: profile.userId,
+        employeeCode: profile.employeeCode,
+        fullName: profile.fullName,
+      });
+    }
 
     return profile;
   }

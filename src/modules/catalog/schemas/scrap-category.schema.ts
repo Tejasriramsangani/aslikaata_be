@@ -11,7 +11,7 @@ export class ScrapCategory {
   @Prop({ required: true, unique: true, uppercase: true, trim: true })
   code: string; // PAPER, PLASTIC, METAL, etc.
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   iconUrl?: string | null;
 
   @Prop({ default: 0 })
