@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Interval } from '@nestjs/schedule';
-import { Model, ClientSession } from 'mongoose';
+import { Model, type ClientSession } from 'mongoose';
 import { OutboxEvent, OutboxEventDocument, OutboxStatus } from '../../common/outbox/outbox-event.schema.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 

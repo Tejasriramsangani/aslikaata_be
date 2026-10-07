@@ -90,8 +90,30 @@ export class PickupAssignment {
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   assignedBy: string;
+
+  @Prop({ type: String, enum: ['AUTO', 'ADMIN', 'ROUTE'], default: 'ADMIN' })
+  method?: string; // Addendum 1: AUTO (instant bulk), ADMIN (manual ops), ROUTE (weekly route run)
 }
 export const PickupAssignmentSchema = SchemaFactory.createForClass(PickupAssignment);
+
+@Schema({ _id: false })
+export class OrderMeta {
+  @Prop({ type: String, enum: ['BULK', 'WEEKLY'], required: true, default: 'BULK' })
+  orderType: 'BULK' | 'WEEKLY';
+
+  @Prop({ type: Number, required: true, default: 10 })
+  limitKgApplied: number; // bulkLimitKg active when order was classified
+
+  @Prop({ type: Number, required: true, default: 0 })
+  rangeMinKg: number;
+
+  @Prop({ type: Number, required: true, default: 0 })
+  rangeMaxKg: number;
+
+  @Prop({ type: Date, required: true, default: () => new Date() })
+  decidedAt: Date;
+}
+export const OrderMetaSchema = SchemaFactory.createForClass(OrderMeta);
 
 @Schema({ _id: false })
 export class PickupTimestamps {
@@ -299,6 +321,24 @@ export class Pickup {
 
   @Prop({ type: PickupClosureSchema, default: () => ({}) })
   closure: PickupClosure;
+
+  @Prop({ type: OrderMetaSchema, default: () => ({ orderType: 'BULK', limitKgApplied: 10, rangeMinKg: 0, rangeMaxKg: 10, decidedAt: new Date() }) })
+  orderMeta: OrderMeta;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Division', default: null })
+  divisionId?: string | null;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'RouteRun', default: null })
+  routeRunId?: string | null;
+
+  @Prop({ type: Number, default: null })
+  stopSequence?: number | null;
+
+  @Prop({ type: Boolean, default: false, index: true })
+  unassigned: boolean;
+
+  @Prop({ type: Boolean, default: false })
+  needsAdminReview: boolean;
 }
 
 export const PickupSchema = SchemaFactory.createForClass(Pickup);
@@ -307,3 +347,6 @@ PickupSchema.index({ 'assignment.employeeProfileId': 1, status: 1 });
 PickupSchema.index({ customerId: 1, createdAt: -1 });
 PickupSchema.index({ 'addressSnapshot.pincode': 1 });
 PickupSchema.index({ 'timestamps.completedAt': 1 });
+PickupSchema.index({ 'orderMeta.orderType': 1, status: 1 });
+PickupSchema.index({ divisionId: 1, status: 1 });
+PickupSchema.index({ unassigned: 1, createdAt: -1 });

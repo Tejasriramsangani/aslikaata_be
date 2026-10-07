@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, ClientSession } from 'mongoose';
+import { Model, type ClientSession } from 'mongoose';
 import { DailyStat, DailyStatDocument, DailyStatScope } from './schemas/daily-stat.schema.js';
 import { PickupDocument } from '../pickups/schemas/pickup.schema.js';
 import { SettlementDocument, SettlementType } from '../settlements/schemas/settlement.schema.js';

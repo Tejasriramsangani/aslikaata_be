@@ -43,6 +43,10 @@ import { CatalogService } from '../catalog/catalog.service.js';
 import { CryptoUtil } from '../../common/utils/crypto.util.js';
 import { WeightUtil } from '../../common/utils/weight.util.js';
 import { CurrencyUtil } from '../../common/utils/currency.util.js';
+import { OrderClassificationService } from '../routing/services/order-classification.service.js';
+import { BulkAutoAssignService } from '../routing/services/bulk-auto-assign.service.js';
+import { RouteRunsService } from '../routing/services/route-runs.service.js';
+import { DivisionService } from '../routing/services/division.service.js';
 import { UserRole } from '../../common/decorators/roles.decorator.js';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
 import { OutboxService } from '../outbox/outbox.service.js';
@@ -72,6 +76,10 @@ export class PickupsService {
     private readonly sequenceService: SequenceService,
     @Optional() private readonly outboxService?: OutboxService,
     @Optional() private readonly dailyStatsService?: DailyStatsService,
+    @Optional() private readonly classificationService?: OrderClassificationService,
+    @Optional() private readonly bulkAutoAssignService?: BulkAutoAssignService,
+    @Optional() private readonly routeRunsService?: RouteRunsService,
+    @Optional() private readonly divisionService?: DivisionService,
   ) {}
 
   // --- Phase 3 Methods: Booking, Assignment & Transit ---
@@ -142,25 +150,96 @@ export class PickupsService {
       },
     });
 
-    const scheduledPickup = await this.stateMachine.transition({
-      pickup,
-      toStatus: PickupStatus.SCHEDULED,
-      actor: { userId: customerId, role: 'SYSTEM', name: 'System Scheduler' },
-      payload: { bookedSlot: slot.displayLabel },
-    });
+    // 1. Classification (Context Addendum 1)
+    let orderMeta: {
+      orderType: 'BULK' | 'WEEKLY';
+      limitKgApplied: number;
+      rangeMinKg: number;
+      rangeMaxKg: number;
+      decidedAt: Date;
+    } = {
+      orderType: 'BULK',
+      limitKgApplied: 10,
+      rangeMinKg: (weightRange.minGrams || 0) / 1000,
+      rangeMaxKg: (weightRange.maxGrams || 0) / 1000,
+      decidedAt: new Date(),
+    };
 
-    if (this.outboxService) {
-      await this.outboxService.createEvent('pickup.requested', {
-        pickupId: scheduledPickup._id.toString(),
-        pickupCode: scheduledPickup.pickupCode,
-        customerId: scheduledPickup.customerId,
-        scheduledDate: scheduledPickup.scheduledDate,
-        timeSlotId: scheduledPickup.timeSlotId,
-        pincode: scheduledPickup.addressSnapshot?.pincode,
+    if (this.classificationService) {
+      orderMeta = await this.classificationService.classify({
+        minGrams: weightRange.minGrams,
+        maxGrams: weightRange.maxGrams,
       });
     }
 
-    return scheduledPickup;
+    pickup.orderMeta = orderMeta;
+    await pickup.save();
+
+    // 2. Routing / Assignment based on orderType
+    let resultPickup: PickupDocument = pickup;
+
+    if (orderMeta.orderType === 'BULK') {
+      if (this.bulkAutoAssignService) {
+        const autoRes = await this.bulkAutoAssignService.tryAutoAssign(pickup);
+        if (autoRes.assigned) {
+          resultPickup = pickup;
+        } else {
+          // Unassigned bulk pickup stays in REQUESTED with unassigned: true
+          resultPickup = pickup;
+        }
+      } else {
+        resultPickup = await this.stateMachine.transition({
+          pickup,
+          toStatus: PickupStatus.SCHEDULED,
+          actor: { userId: customerId, role: 'SYSTEM', name: 'System Scheduler' },
+          payload: { bookedSlot: slot.displayLabel },
+        });
+      }
+    } else {
+      // WEEKLY Order: attach to division route run
+      if (this.divisionService && this.routeRunsService) {
+        const division = await this.divisionService.findDivisionForAddress({
+          pincode: address.pincode,
+          location: address.location,
+        });
+
+        if (division) {
+          const run = await this.routeRunsService.placeWeeklyPickup(pickup, division._id.toString());
+          if (run) {
+            resultPickup = pickup;
+          } else {
+            pickup.needsAdminReview = true;
+            await pickup.save();
+            resultPickup = pickup;
+          }
+        } else {
+          pickup.needsAdminReview = true;
+          await pickup.save();
+          resultPickup = pickup;
+        }
+      } else {
+        resultPickup = await this.stateMachine.transition({
+          pickup,
+          toStatus: PickupStatus.SCHEDULED,
+          actor: { userId: customerId, role: 'SYSTEM', name: 'System Scheduler' },
+          payload: { bookedSlot: slot.displayLabel },
+        });
+      }
+    }
+
+    if (this.outboxService) {
+      await this.outboxService.createEvent('pickup.requested', {
+        pickupId: resultPickup._id.toString(),
+        pickupCode: resultPickup.pickupCode,
+        customerId: resultPickup.customerId,
+        scheduledDate: resultPickup.scheduledDate,
+        timeSlotId: resultPickup.timeSlotId,
+        orderType: orderMeta.orderType,
+        pincode: resultPickup.addressSnapshot?.pincode,
+      });
+    }
+
+    return resultPickup;
   }
 
   async updatePreparation(
@@ -224,7 +303,9 @@ export class PickupsService {
       vehicleNumber: dto.vehicleNumber,
       assignedAt: now,
       assignedBy: adminUserId,
+      method: 'ADMIN',
     };
+    pickup.unassigned = false;
 
     const assignedPickup = await this.stateMachine.transition({
       pickup,

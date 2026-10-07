@@ -17,6 +17,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { OutboxModule } from './modules/outbox/outbox.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { AuditModule } from './modules/audit/audit.module.js';
+import { RoutingModule } from './modules/routing/routing.module.js';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AuditModule } from './modules/audit/audit.module.js';
     OutboxModule,
     AnalyticsModule,
     AuditModule,
+    RoutingModule,
   ],
   controllers: [],
   providers: [

@@ -59,18 +59,32 @@ export class RealtimeGateway
     const redisUrl = this.configService.get<string>('REDIS_URL');
 
     if (redisUrl || (redisHost && redisPort)) {
+      let pubClient: Redis | null = null;
+      let subClient: Redis | null = null;
       try {
-        const pubClient = redisUrl
-          ? new Redis(redisUrl, { lazyConnect: true })
-          : new Redis({ host: redisHost, port: Number(redisPort), lazyConnect: true });
+        const redisOptions = {
+          lazyConnect: true,
+          maxRetriesPerRequest: 1,
+          retryStrategy: () => null, // Do not infinite retry if Redis is offline
+        };
+
+        pubClient = redisUrl
+          ? new Redis(redisUrl, redisOptions)
+          : new Redis({ host: redisHost, port: Number(redisPort), ...redisOptions });
         
+        // Prevent unhandled error event noise
+        pubClient.on('error', () => {});
+
         await pubClient.connect();
-        const subClient = pubClient.duplicate();
+        subClient = pubClient.duplicate();
+        subClient.on('error', () => {});
         await subClient.connect();
 
         server.adapter(createAdapter(pubClient, subClient));
         this.logger.log('Redis Pub/Sub adapter successfully mounted for multi-instance Socket.IO');
       } catch (err: any) {
+        pubClient?.disconnect();
+        subClient?.disconnect();
         this.logger.warn(`Redis connection failed (${err.message}). Continuing with in-memory adapter.`);
       }
     } else {
@@ -210,6 +224,20 @@ export class RealtimeGateway
     if (this.server) {
       this.server.to(`pickup:${pickupId}`).emit('employee.location', locationData);
       this.server.to('admin:dashboard').emit('employee.location', { pickupId, ...locationData });
+    }
+  }
+
+  notifyPickupStatusChanged(pickupId: string, newStatus: string, message?: string) {
+    if (this.server) {
+      this.server.to(`pickup:${pickupId}`).emit('pickup.status_changed', { pickupId, newStatus, message });
+      this.server.to('admin:dashboard').emit('pickup.status_changed', { pickupId, newStatus, message });
+    }
+  }
+
+  notifyUnassignedAlert(pickupCode: string, reason: string) {
+    if (this.server) {
+      this.server.to('admin:queue').emit('pickup.unassigned', { pickupCode, reason, alertAt: new Date() });
+      this.server.to('admin:dashboard').emit('pickup.unassigned', { pickupCode, reason, alertAt: new Date() });
     }
   }
 }

@@ -11,6 +11,8 @@ import { EmployeeDocument, EmployeeDocumentSchema } from '../employees/schemas/e
 import { CatalogModule } from '../catalog/catalog.module.js';
 import { OutboxModule } from '../outbox/outbox.module.js';
 import { AnalyticsModule } from '../analytics/analytics.module.js';
+import { RoutingModule } from '../routing/routing.module.js';
+import { forwardRef } from '@nestjs/common';
 
 import { PickupStateMachineService } from './pickup-state-machine.service.js';
 import { PickupsService } from './pickups.service.js';
@@ -21,6 +23,7 @@ import { PickupsController } from './pickups.controller.js';
     CatalogModule,
     OutboxModule,
     AnalyticsModule,
+    forwardRef(() => RoutingModule),
     MongooseModule.forFeature([
       { name: Pickup.name, schema: PickupSchema },
       { name: PickupEvent.name, schema: PickupEventSchema },

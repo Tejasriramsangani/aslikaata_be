@@ -40,7 +40,7 @@ export class PickupStateMachineService {
    * Maps current status -> array of valid destination statuses.
    */
   private readonly allowedTransitions: Record<PickupStatus, PickupStatus[]> = {
-    [PickupStatus.REQUESTED]: [PickupStatus.SCHEDULED, PickupStatus.CANCELLED],
+    [PickupStatus.REQUESTED]: [PickupStatus.SCHEDULED, PickupStatus.ASSIGNED, PickupStatus.CANCELLED],
     [PickupStatus.SCHEDULED]: [PickupStatus.ASSIGNED, PickupStatus.CANCELLED],
     [PickupStatus.ASSIGNED]: [PickupStatus.ON_THE_WAY, PickupStatus.CANCELLED],
     [PickupStatus.ON_THE_WAY]: [PickupStatus.ARRIVED, PickupStatus.CANCELLED],
@@ -82,7 +82,7 @@ export class PickupStateMachineService {
         break;
 
       case PickupStatus.ASSIGNED:
-        if (actor.role !== UserRole.ADMIN) {
+        if (actor.role !== UserRole.ADMIN && actor.role !== 'SYSTEM') {
           throw new ForbiddenException('Only operations admin can assign employees');
         }
         break;

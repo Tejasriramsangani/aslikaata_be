@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import { Connection, ClientSession } from 'mongoose';
+import type { Connection, ClientSession } from 'mongoose';
 
 @Injectable()
 export class TransactionRunner {
