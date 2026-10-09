@@ -86,3 +86,26 @@ export class FailPickupDto {
   @IsString()
   reason: string;
 }
+
+export class ReschedulePickupDto {
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'scheduledDate must be in YYYY-MM-DD format' })
+  scheduledDate: string;
+
+  @IsOptional()
+  @IsString()
+  timeSlotId?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class UpdateCategoriesDto {
+  @IsNotEmpty()
+  @IsArray()
+  @IsString({ each: true })
+  categoryIds: string[];
+}
+

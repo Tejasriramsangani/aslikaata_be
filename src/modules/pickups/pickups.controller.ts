@@ -15,6 +15,8 @@ import {
   AssignPickupDto,
   CancelPickupDto,
   FailPickupDto,
+  ReschedulePickupDto,
+  UpdateCategoriesDto,
 } from './dto/pickup.dto.js';
 import {
   VerifyQrDto,
@@ -52,6 +54,26 @@ export class PickupsController {
     @Body() dto: UpdatePreparationDto,
   ) {
     return this.pickupsService.updatePreparation(pickupId, user.userId, dto);
+  }
+
+  @Roles(UserRole.CUSTOMER)
+  @Patch('customer/pickups/:id/reschedule')
+  async reschedulePickup(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+    @Body() dto: ReschedulePickupDto,
+  ) {
+    return this.pickupsService.reschedulePickup(pickupId, user.userId, dto);
+  }
+
+  @Roles(UserRole.CUSTOMER)
+  @Patch('customer/pickups/:id/categories')
+  async updateCategories(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+    @Body() dto: UpdateCategoriesDto,
+  ) {
+    return this.pickupsService.updateCategories(pickupId, user.userId, dto);
   }
 
   @Roles(UserRole.CUSTOMER)

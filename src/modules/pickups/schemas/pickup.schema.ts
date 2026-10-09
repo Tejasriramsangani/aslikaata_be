@@ -79,6 +79,9 @@ export class PickupAssignment {
   @Prop({ type: String, required: true })
   employeeName: string;
 
+  @Prop({ type: String, default: null })
+  employeePhone?: string | null;
+
   @Prop({ type: String, required: true })
   vehicleType: string;
 
