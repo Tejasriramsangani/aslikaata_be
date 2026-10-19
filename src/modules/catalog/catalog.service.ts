@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -22,7 +23,7 @@ import {
 import { TransactionRunner } from '../../common/database/transaction-runner.js';
 
 @Injectable()
-export class CatalogService {
+export class CatalogService implements OnModuleInit {
   private readonly logger = new Logger(CatalogService.name);
 
   constructor(
@@ -38,6 +39,18 @@ export class CatalogService {
     private readonly weightRangeModel: Model<WeightRangeDocument>,
     private readonly transactionRunner: TransactionRunner,
   ) {}
+
+  async onModuleInit() {
+    try {
+      const count = await this.categoryModel.countDocuments();
+      if (count === 0) {
+        await this.seedDefaultCatalog('system_bootstrap');
+        this.logger.log('Default ASLI KAATA Scrap Catalog auto-seeded successfully.');
+      }
+    } catch (err: any) {
+      this.logger.warn(`Catalog auto-seed deferred: ${err.message}`);
+    }
+  }
 
   // --- Category Management ---
 

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -59,6 +60,12 @@ export class EmployeesController {
   }
 
   // --- Admin KYC & Management Endpoints ---
+
+  @Roles(UserRole.ADMIN)
+  @Get('admin/employees')
+  async listAllEmployees(@Query('status') status?: string) {
+    return this.employeesService.listAllEmployees(status);
+  }
 
   @Roles(UserRole.ADMIN)
   @Get('admin/employees/pending-kyc')

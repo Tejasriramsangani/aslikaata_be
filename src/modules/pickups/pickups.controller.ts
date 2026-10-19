@@ -224,7 +224,7 @@ export class PickupsController {
 
   // --- Universal Details Endpoint (with object-level security) ---
 
-  @Get('pickups/:id')
+  @Get(['pickups/:id', 'customer/pickups/:id'])
   async getPickupById(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id') pickupId: string,

@@ -45,10 +45,20 @@ export class Fast2SmsService implements ISmsService {
         return true;
       } else {
         this.logger.error(`[Fast2SMS] Failed to dispatch SMS: ${JSON.stringify(data)}`);
+        if (process.env.NODE_ENV !== 'production') {
+          this.logger.warn(
+            `[DEV FALLBACK] SMS failed but here is your OTP for testing +91 ${cleanMobile}: [ ${otp} ]`,
+          );
+        }
         return false;
       }
     } catch (err: any) {
       this.logger.error(`[Fast2SMS] Network error: ${err.message}`);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn(
+          `[DEV FALLBACK] SMS failed but here is your OTP for testing +91 ${cleanMobile}: [ ${otp} ]`,
+        );
+      }
       return false;
     }
   }

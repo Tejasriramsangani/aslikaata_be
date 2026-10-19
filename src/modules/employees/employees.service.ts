@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Logger,
   Optional,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -19,6 +20,7 @@ import {
   DocType,
   DocumentStatus,
 } from './schemas/employee-document.schema.js';
+import { User, UserDocument, UserRole, UserStatus } from '../identity/schemas/user.schema.js';
 import {
   CreateEmployeeProfileDto,
   UploadEmployeeDocumentDto,
@@ -31,7 +33,7 @@ import { AuditLog, AuditLogDocument } from '../../common/audit/audit-log.schema.
 import { OutboxService } from '../outbox/outbox.service.js';
 
 @Injectable()
-export class EmployeesService {
+export class EmployeesService implements OnModuleInit {
   private readonly logger = new Logger(EmployeesService.name);
 
   constructor(
@@ -39,11 +41,62 @@ export class EmployeesService {
     private readonly profileModel: Model<EmployeeProfileDocument>,
     @InjectModel(EmployeeDocument.name)
     private readonly documentModel: Model<EmployeeDocumentDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     @InjectModel(AuditLog.name)
     private readonly auditLogModel: Model<AuditLogDocument>,
     private readonly sequenceService: SequenceService,
     @Optional() private readonly outboxService?: OutboxService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      const demoEmployees = [
+        {
+          mobile: '+919848011111',
+          code: 'EMP-001',
+          fullName: 'Ramesh Kumar',
+          vehicleType: 'Tata Ace Gold (Diesel)',
+          vehicleNumber: 'AP 16 TX 4920',
+        },
+        {
+          mobile: '+919848022222',
+          code: 'EMP-002',
+          fullName: 'Suresh Babu',
+          vehicleType: 'Electric 3-Wheeler Cargo',
+          vehicleNumber: 'AP 16 EV 0482',
+        },
+      ];
+
+      for (const d of demoEmployees) {
+        let user = await this.userModel.findOne({ mobile: d.mobile });
+        if (!user) {
+          user = await this.userModel.create({
+            mobile: d.mobile,
+            roles: [UserRole.EMPLOYEE],
+            status: UserStatus.ACTIVE,
+            lastLoginAt: new Date(),
+          });
+        }
+
+        const existingProfile = await this.profileModel.findOne({ userId: user._id.toString() });
+        if (!existingProfile) {
+          await this.profileModel.create({
+            userId: user._id.toString(),
+            employeeCode: d.code,
+            fullName: d.fullName,
+            status: EmployeeStatus.APPROVED,
+            vehicleType: d.vehicleType,
+            vehicleNumber: d.vehicleNumber,
+            approvedAt: new Date(),
+          });
+          this.logger.log(`Default employee profile seeded: ${d.fullName} (${d.mobile})`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Employee auto-seed deferred: ${err.message}`);
+    }
+  }
 
   /**
    * Creates or updates the employee profile.
@@ -140,6 +193,11 @@ export class EmployeesService {
     return this.profileModel.find({
       status: { $in: [EmployeeStatus.PENDING_REVIEW, EmployeeStatus.ONBOARDING] },
     });
+  }
+
+  async listAllEmployees(status?: string): Promise<EmployeeProfileDocument[]> {
+    const query: any = status ? { status: status as EmployeeStatus } : {};
+    return (await this.profileModel.find(query).sort({ createdAt: -1 })) as any;
   }
 
   /**
