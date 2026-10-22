@@ -24,6 +24,15 @@ export class ScrapRate {
   @Prop({ type: Date, default: null })
   effectiveTo?: Date | null;
 
+  @Prop({ type: Number, default: 0 })
+  marketBenchmarkRate?: number;
+
+  @Prop({ type: Number, default: 0 })
+  marginDelta?: number;
+
+  @Prop({ type: String, default: 'FLAT' })
+  marginType?: string;
+
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   createdById: string;
 }

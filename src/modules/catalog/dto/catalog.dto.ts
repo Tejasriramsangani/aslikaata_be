@@ -60,6 +60,18 @@ export class SetProductRateDto {
   @IsInt()
   @Min(1, { message: 'Rate must be a positive integer in paise' })
   ratePerKg: number;
+
+  @IsOptional()
+  @IsNumber()
+  marketBenchmarkRate?: number;
+
+  @IsOptional()
+  @IsNumber()
+  marginDelta?: number;
+
+  @IsOptional()
+  @IsString()
+  marginType?: string;
 }
 
 export class CreateTimeSlotDto {

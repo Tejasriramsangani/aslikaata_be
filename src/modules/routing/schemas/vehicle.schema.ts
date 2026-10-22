@@ -29,6 +29,39 @@ export class Vehicle {
   @Prop({ type: String, enum: VehicleStatus, default: VehicleStatus.ACTIVE, index: true })
   status: VehicleStatus;
 
+  @Prop({ type: String, default: 'OWNED' })
+  ownership: string;
+
+  @Prop({ type: Object, default: {} })
+  ownershipDetails: {
+    vendorName?: string;
+    vendorPhone?: string;
+    rentBillingModel?: string;
+    rentalChargeRupees?: number;
+    contractValidUntil?: string;
+    assetValueRupees?: number;
+  };
+
+  @Prop({ type: Object, default: {} })
+  compliance: {
+    fitnessValidUntil?: string;
+    insuranceValidUntil?: string;
+    pucValidUntil?: string;
+    lastServiceOdometer?: number;
+  };
+
+  @Prop({ type: Number, default: 0 })
+  currentOdometer: number;
+
+  @Prop({ type: String, default: 'Vijayawada Central' })
+  assignedDivision: string;
+
+  @Prop({ type: Object, default: {} })
+  defaultDriver: {
+    name?: string;
+    phone?: string;
+  };
+
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'EmployeeProfile', default: null })
   defaultEmployeeId?: string | null;
 }

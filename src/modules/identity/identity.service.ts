@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -26,7 +27,7 @@ import { CryptoUtil } from '../../common/utils/crypto.util.js';
 import { UserRole } from '../../common/decorators/roles.decorator.js';
 
 @Injectable()
-export class IdentityService {
+export class IdentityService implements OnModuleInit {
   private readonly logger = new Logger(IdentityService.name);
 
   constructor(
@@ -38,6 +39,82 @@ export class IdentityService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
+
+  async onModuleInit() {
+    await this.seedDefaultAdmins();
+  }
+
+  /**
+   * Auto-seeds standard default admin roles for operations & development
+   */
+  async seedDefaultAdmins() {
+    try {
+      const defaultAdmins = [
+        {
+          name: 'Ramesh Varma',
+          email: 'admin@aslikaata.com',
+          mobile: '9848022334',
+          password: 'Admin@123456',
+          role: 'SUPER_ADMIN',
+          assignedDivision: 'All Andhra Divisions',
+        },
+        {
+          name: 'K. Venkat Rao',
+          email: 'yard.manager@aslikaata.com',
+          mobile: '9848022335',
+          password: 'Yard@123456',
+          role: 'YARD_MANAGER',
+          assignedDivision: 'Vijayawada Central Yard',
+        },
+        {
+          name: 'Suresh Reddy',
+          email: 'dispatcher@aslikaata.com',
+          mobile: '9848022336',
+          password: 'Dispatch@123456',
+          role: 'DISPATCHER',
+          assignedDivision: 'Guntur Autonagar Fleet Hub',
+        },
+        {
+          name: 'P. Anitha',
+          email: 'accounts@aslikaata.com',
+          mobile: '9848022337',
+          password: 'Accounts@123456',
+          role: 'ACCOUNTANT',
+          assignedDivision: 'All Andhra Divisions',
+        },
+      ];
+
+      for (const adm of defaultAdmins) {
+        const existingCred = await this.adminModel.findOne({ email: adm.email.toLowerCase() });
+        if (!existingCred) {
+          let user = await this.userModel.findOne({ mobile: adm.mobile });
+          if (!user) {
+            user = await this.userModel.create({
+              mobile: adm.mobile,
+              roles: [UserRole.ADMIN],
+              status: UserStatus.ACTIVE,
+            });
+          } else if (!user.roles.includes(UserRole.ADMIN)) {
+            user.roles.push(UserRole.ADMIN);
+            await user.save();
+          }
+
+          const passwordHash = await bcrypt.hash(adm.password, 10);
+          await this.adminModel.create({
+            userId: user._id.toString(),
+            email: adm.email.toLowerCase(),
+            passwordHash,
+            name: adm.name,
+            role: adm.role,
+            assignedDivision: adm.assignedDivision,
+          });
+          this.logger.log(`Seeded default admin credential: ${adm.email} (${adm.role})`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Default admin seeding skipped or error: ${err.message}`);
+    }
+  }
 
   /**
    * Dispatches OTP challenge with rate-limiting and cooldown enforcement.
@@ -205,7 +282,15 @@ export class IdentityService {
   async adminLogin(dto: AdminLoginDto): Promise<{
     accessToken: string;
     refreshToken: string;
-    admin: { id: string; email: string; roles: string[] };
+    admin: {
+      id: string;
+      email: string;
+      roles: string[];
+      name?: string;
+      role?: string;
+      mobile?: string;
+      assignedDivision?: string;
+    };
   }> {
     const admin = await this.adminModel.findOne({ email: dto.email.toLowerCase() });
     if (!admin) {
@@ -242,10 +327,107 @@ export class IdentityService {
       refreshToken: tokens.refreshToken,
       admin: {
         id: user._id.toString(),
+        name: admin.name || 'Admin User',
         email: admin.email,
+        mobile: user.mobile,
+        role: admin.role || 'SUPER_ADMIN',
+        assignedDivision: admin.assignedDivision || 'All Andhra Divisions',
         roles: user.roles,
       },
     };
+  }
+
+  /**
+   * Fetch all staff & admin users for Admin Panel
+   */
+  async getAdminUsers(): Promise<any[]> {
+    const creds = await this.adminModel.find().lean();
+    const results = [];
+    for (const cred of creds) {
+      const u = await this.userModel.findById(cred.userId).lean();
+      results.push({
+        id: cred._id.toString(),
+        userId: cred.userId ? cred.userId.toString() : '',
+        name: cred.name || 'Admin User',
+        email: cred.email,
+        mobile: u ? u.mobile : '',
+        role: cred.role || 'SUPER_ADMIN',
+        assignedDivision: cred.assignedDivision || 'All Andhra Divisions',
+        status: u ? u.status : 'ACTIVE',
+        lastLoginAt: u ? u.lastLoginAt : null,
+        createdAt: (cred as any).createdAt,
+      });
+    }
+    return results;
+  }
+
+  /**
+   * Create a new Admin / Staff User with RBAC role
+   */
+  async createAdminUser(dto: {
+    name: string;
+    email: string;
+    mobile: string;
+    role: string;
+    password?: string;
+    assignedDivision?: string;
+  }): Promise<any> {
+    const email = dto.email.toLowerCase().trim();
+    const existing = await this.adminModel.findOne({ email });
+    if (existing) {
+      throw new BadRequestException('A user with this email address already exists');
+    }
+
+    let user = await this.userModel.findOne({ mobile: dto.mobile.trim() });
+    if (!user) {
+      user = await this.userModel.create({
+        mobile: dto.mobile.trim(),
+        roles: [UserRole.ADMIN],
+        status: UserStatus.ACTIVE,
+      });
+    } else if (!user.roles.includes(UserRole.ADMIN)) {
+      user.roles.push(UserRole.ADMIN);
+      await user.save();
+    }
+
+    const rawPassword = dto.password || 'Admin@123456';
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+
+    const cred = await this.adminModel.create({
+      userId: user._id.toString(),
+      email,
+      passwordHash,
+      name: dto.name.trim(),
+      role: dto.role || 'SUPER_ADMIN',
+      assignedDivision: dto.assignedDivision || 'All Andhra Divisions',
+    });
+
+    return {
+      id: cred._id.toString(),
+      userId: user._id.toString(),
+      name: cred.name,
+      email: cred.email,
+      mobile: user.mobile,
+      role: cred.role,
+      assignedDivision: cred.assignedDivision,
+      status: user.status,
+    };
+  }
+
+  /**
+   * Delete or deactivate an admin user
+   */
+  async deleteAdminUser(id: string): Promise<{ success: boolean; message: string }> {
+    const cred = await this.adminModel.findById(id);
+    if (!cred) {
+      throw new BadRequestException('User not found');
+    }
+    if (cred.email === 'admin@aslikaata.com') {
+      throw new BadRequestException('Root Super Admin account cannot be deleted');
+    }
+
+    await this.adminModel.deleteOne({ _id: id });
+    return { success: true, message: 'User removed successfully' };
   }
 
   /**

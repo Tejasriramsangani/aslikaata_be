@@ -2,10 +2,13 @@ import { Controller, Get, Query, BadRequestException, UseGuards } from '@nestjs/
 import { AvailabilityService } from '../services/availability.service.js';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard.js';
 
-@Controller('availability')
+import { Public } from '../../../common/guards/jwt-auth.guard.js';
+
+@Controller('api/v1/availability')
 export class AvailabilityController {
   constructor(private readonly availabilityService: AvailabilityService) {}
 
+  @Public()
   @Get()
   async getAvailability(
     @Query('addressId') addressId: string,

@@ -1,14 +1,44 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Division, DivisionDocument } from '../schemas/division.schema.js';
 
 @Injectable()
-export class DivisionService {
+export class DivisionService implements OnModuleInit {
+  private readonly logger = new Logger(DivisionService.name);
+
   constructor(
     @InjectModel(Division.name)
     private readonly divisionModel: Model<DivisionDocument>,
   ) {}
+
+  async onModuleInit() {
+    const count = await this.divisionModel.countDocuments();
+    if (count === 0) {
+      this.logger.log('Seeding initial operations divisions into MongoDB...');
+      await this.divisionModel.insertMany([
+        {
+          name: 'Vijayawada Central Yard (MG Road, Benz Circle)',
+          code: 'VJA_C',
+          pincodes: ['520001', '520002', '520010'],
+          isActive: true,
+        },
+        {
+          name: 'Vijayawada East (Madhura Nagar, Currency Nagar)',
+          code: 'VJA_E',
+          pincodes: ['520007', '520008', '520011'],
+          isActive: true,
+        },
+        {
+          name: 'Guntur Processing Yard (Autonagar)',
+          code: 'GNT_01',
+          pincodes: ['522001', '522004', '522006'],
+          isActive: true,
+        },
+      ]);
+      this.logger.log('Seeded 3 operational divisions successfully.');
+    }
+  }
 
   async create(data: {
     name: string;

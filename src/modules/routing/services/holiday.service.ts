@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Holiday, HolidayDocument, HolidayHandling, HolidayScope } from '../schemas/holiday.schema.js';
@@ -7,7 +7,7 @@ import { Pickup, PickupDocument } from '../../pickups/schemas/pickup.schema.js';
 import { PickupEvent, PickupEventDocument } from '../../pickups/schemas/pickup-event.schema.js';
 
 @Injectable()
-export class HolidayService {
+export class HolidayService implements OnModuleInit {
   private readonly logger = new Logger(HolidayService.name);
 
   constructor(
@@ -20,6 +20,52 @@ export class HolidayService {
     @InjectModel(PickupEvent.name)
     private readonly eventModel: Model<PickupEventDocument>,
   ) {}
+
+  async onModuleInit() {
+    const count = await this.holidayModel.countDocuments();
+    if (count === 0) {
+      this.logger.log('Seeding initial operations holidays into MongoDB...');
+      await this.holidayModel.insertMany([
+        {
+          name: 'Gandhi Jayanti',
+          date: '2026-10-02',
+          type: 'NATIONAL',
+          scope: HolidayScope.ALL,
+          scopeDescription: 'All Network Divisions & Fleet',
+          handling: HolidayHandling.NEXT_WORKING_DAY,
+          affectedRunsCount: 8,
+          affectedPickupsCount: 52,
+          shiftedToDate: '2026-10-03',
+          isConfirmed: true,
+        },
+        {
+          name: 'Vijayadasami / Dussehra Holiday',
+          date: '2026-10-19',
+          type: 'STATE_REGIONAL',
+          scope: HolidayScope.ALL,
+          scopeDescription: 'All Andhra Pradesh Yards & Routes',
+          handling: HolidayHandling.NEXT_WORKING_DAY,
+          affectedRunsCount: 10,
+          affectedPickupsCount: 68,
+          shiftedToDate: '2026-10-20',
+          isConfirmed: true,
+        },
+        {
+          name: 'Deepavali Eve Yard Maintenance',
+          date: '2026-10-31',
+          type: 'YARD_MAINTENANCE',
+          scope: HolidayScope.ALL,
+          scopeDescription: 'All Processing Yards (Equipment Overhaul)',
+          handling: HolidayHandling.NEXT_WORKING_DAY,
+          affectedRunsCount: 6,
+          affectedPickupsCount: 38,
+          shiftedToDate: '2026-11-02',
+          isConfirmed: true,
+        },
+      ]);
+      this.logger.log('Seeded 3 operational holidays successfully.');
+    }
+  }
 
   async findAll(): Promise<HolidayDocument[]> {
     return this.holidayModel.find().sort({ date: 1 });

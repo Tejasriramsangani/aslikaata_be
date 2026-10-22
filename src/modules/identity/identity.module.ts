@@ -9,6 +9,7 @@ import { OtpChallenge, OtpChallengeSchema } from './schemas/otp-challenge.schema
 import { AdminCredential, AdminCredentialSchema } from './schemas/admin-credential.schema.js';
 import { IdentityService } from './identity.service.js';
 import { IdentityController } from './identity.controller.js';
+import { AdminUsersController } from './admin-users.controller.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { SMS_SERVICE } from './sms/sms.interface.js';
 import { MockSmsService } from './sms/mock-sms.service.js';
@@ -24,7 +25,7 @@ import { MockSmsService } from './sms/mock-sms.service.js';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({}),
   ],
-  controllers: [IdentityController],
+  controllers: [IdentityController, AdminUsersController],
   providers: [
     IdentityService,
     JwtStrategy,

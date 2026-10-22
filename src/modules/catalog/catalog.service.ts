@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -22,7 +23,7 @@ import {
 import { TransactionRunner } from '../../common/database/transaction-runner.js';
 
 @Injectable()
-export class CatalogService {
+export class CatalogService implements OnModuleInit {
   private readonly logger = new Logger(CatalogService.name);
 
   constructor(
@@ -38,6 +39,18 @@ export class CatalogService {
     private readonly weightRangeModel: Model<WeightRangeDocument>,
     private readonly transactionRunner: TransactionRunner,
   ) {}
+
+  async onModuleInit() {
+    try {
+      const count = await this.categoryModel.countDocuments();
+      if (count === 0) {
+        this.logger.log('Catalog empty on boot. Seeding default scrap catalog...');
+        await this.seedDefaultCatalog('system_auto_init');
+      }
+    } catch (err: any) {
+      this.logger.error(`Error auto-seeding catalog: ${err.message}`);
+    }
+  }
 
   // --- Category Management ---
 
@@ -131,6 +144,9 @@ export class CatalogService {
           {
             productId: dto.productId,
             ratePerKg: dto.ratePerKg,
+            marketBenchmarkRate: dto.marketBenchmarkRate,
+            marginDelta: dto.marginDelta,
+            marginType: dto.marginType,
             effectiveFrom: now,
             effectiveTo: null,
             createdById: adminUserId,

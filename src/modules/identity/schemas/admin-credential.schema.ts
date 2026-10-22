@@ -14,6 +14,15 @@ export class AdminCredential {
   @Prop({ required: true })
   passwordHash: string;
 
+  @Prop({ type: String, default: 'Admin User' })
+  name: string;
+
+  @Prop({ type: String, default: 'SUPER_ADMIN' })
+  role: string;
+
+  @Prop({ type: String, default: 'All Andhra Divisions' })
+  assignedDivision: string;
+
   @Prop({ type: String, default: null })
   totpSecretEnc?: string | null;
 

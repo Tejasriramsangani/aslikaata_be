@@ -8,7 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { EmployeeProfile, EmployeeProfileDocument } from '../../employees/schemas/employee-profile.schema.js';
 
-@Controller('employee/route')
+@Controller('api/v1/employee/route')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.EMPLOYEE)
 export class EmployeeRouteController {

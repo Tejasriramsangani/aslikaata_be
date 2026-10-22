@@ -28,7 +28,7 @@ import { Model } from 'mongoose';
 import { Pickup, PickupDocument } from '../../pickups/schemas/pickup.schema.js';
 import { PickupStatus } from '../../pickups/schemas/pickup-status.enum.js';
 
-@Controller('admin')
+@Controller('api/v1/admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminRoutingController {
