@@ -45,10 +45,11 @@ export class CatalogService implements OnModuleInit {
       const count = await this.categoryModel.countDocuments();
       if (count === 0) {
         this.logger.log('Catalog empty on boot. Seeding default scrap catalog...');
-        await this.seedDefaultCatalog('system_auto_init');
+        await this.seedDefaultCatalog('system_bootstrap');
+        this.logger.log('Default ASLI KAATA Scrap Catalog auto-seeded successfully.');
       }
     } catch (err: any) {
-      this.logger.error(`Error auto-seeding catalog: ${err.message}`);
+      this.logger.warn(`Catalog auto-seed deferred: ${err.message}`);
     }
   }
 

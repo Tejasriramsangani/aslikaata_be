@@ -20,6 +20,8 @@ import { AuditModule } from './modules/audit/audit.module.js';
 import { RoutingModule } from './modules/routing/routing.module.js';
 import { OperationsModule } from './modules/operations/operations.module.js';
 
+import { AppController } from './app.controller.js';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -41,7 +43,7 @@ import { OperationsModule } from './modules/operations/operations.module.js';
     RoutingModule,
     OperationsModule,
   ],
-  controllers: [],
+  controllers: [AppController],
   providers: [
     {
       provide: APP_INTERCEPTOR,

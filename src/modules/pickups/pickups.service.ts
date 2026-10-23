@@ -953,7 +953,9 @@ export class PickupsService {
   // --- Query Methods with Object-Level Security ---
 
   async getPickupById(pickupId: string, user: CurrentUserPayload): Promise<PickupDocument> {
-    const query = this.pickupModel.findById(pickupId);
+    const query = isValidObjectId(pickupId)
+      ? this.pickupModel.findById(pickupId)
+      : this.pickupModel.findOne({ pickupCode: pickupId });
     const pickup = typeof query?.populate === 'function' ? await query.populate('categories') : await query;
     if (!pickup) {
       throw new NotFoundException('Pickup not found');

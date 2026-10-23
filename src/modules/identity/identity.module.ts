@@ -11,6 +11,8 @@ import { IdentityService } from './identity.service.js';
 import { IdentityController } from './identity.controller.js';
 import { AdminUsersController } from './admin-users.controller.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
+import { ConfigService } from '@nestjs/config';
+import { Fast2SmsService } from './sms/fast2sms.service.js';
 import { SMS_SERVICE } from './sms/sms.interface.js';
 import { MockSmsService } from './sms/mock-sms.service.js';
 
@@ -31,7 +33,14 @@ import { MockSmsService } from './sms/mock-sms.service.js';
     JwtStrategy,
     {
       provide: SMS_SERVICE,
-      useClass: MockSmsService,
+      useFactory: (configService: ConfigService) => {
+        const provider = configService.get<string>('SMS_PROVIDER', 'mock');
+        if (provider === 'fast2sms') {
+          return new Fast2SmsService(configService);
+        }
+        return new MockSmsService();
+      },
+      inject: [ConfigService],
     },
   ],
   exports: [IdentityService, JwtStrategy, PassportModule, JwtModule, MongooseModule],

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { EmployeeProfile, EmployeeProfileSchema } from './schemas/employee-profile.schema.js';
 import { EmployeeDocument, EmployeeDocumentSchema } from './schemas/employee-document.schema.js';
+import { User, UserSchema } from '../identity/schemas/user.schema.js';
 import { AuditLog, AuditLogSchema } from '../../common/audit/audit-log.schema.js';
 import { OutboxModule } from '../outbox/outbox.module.js';
 import { EmployeesService } from './employees.service.js';
@@ -13,6 +14,7 @@ import { EmployeesController } from './employees.controller.js';
     MongooseModule.forFeature([
       { name: EmployeeProfile.name, schema: EmployeeProfileSchema },
       { name: EmployeeDocument.name, schema: EmployeeDocumentSchema },
+      { name: User.name, schema: UserSchema },
       { name: AuditLog.name, schema: AuditLogSchema },
     ]),
   ],
