@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 import { UserRole } from '../../../common/decorators/roles.decorator.js';
+export { UserRole };
 
 export type UserDocument = HydratedDocument<User>;
 

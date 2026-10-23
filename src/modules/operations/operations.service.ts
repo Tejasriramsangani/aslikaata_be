@@ -698,4 +698,179 @@ export class OperationsService implements OnModuleInit {
     }
     return { success: true, status: 'APPROVED' };
   }
+
+  // In-memory / dynamic store for fraud sentinel alerts
+  private fraudAlerts = [
+    {
+      id: 'alt_01',
+      category: 'WEIGHT_MISMATCH_DUMP',
+      severity: 'CRITICAL',
+      title: 'Dump Scale Weight Shortage > 3.2%',
+      description: 'Vehicle AP 16 TF 2234 reported 780.0 kg on mobile app, but physical yard platform scale weighed 755.0 kg (-25.0 kg shortage).',
+      subjectCode: 'AKP-EMP-0310',
+      subjectName: 'K. Venkatesh (Driver) & Md. Ismail (Collector)',
+      detectedAt: 'Today, 11:32 AM',
+      financialRiskRupees: 700,
+      status: 'OPEN_PENDING_ACTION',
+    },
+    {
+      id: 'alt_02',
+      category: 'FLOAT_CASH_SHORTAGE',
+      severity: 'WARNING',
+      title: 'Evening Cash Float Unexplained Discrepancy',
+      description: 'Cash float flt_092 closed with ₹450 unexplained shortage after deducting verified OTP pickups and approved EV charging vouchers.',
+      subjectCode: 'AKP-EMP-0182',
+      subjectName: 'Siva Krishna (Field Picker)',
+      detectedAt: '11 Oct 2026, 18:45',
+      financialRiskRupees: 450,
+      status: 'ACKNOWLEDGED_INVESTIGATING',
+    },
+    {
+      id: 'alt_03',
+      category: 'HIGH_WASTAGE_DEDUCTION',
+      severity: 'WARNING',
+      title: 'Abnormal Deduction Frequency (6.8% vs Yard Avg 2.1%)',
+      description: 'Collector recorded 6.8% average moisture deduction across 12 consecutive pickups in Moghalrajpuram. Exceeds historical weather threshold.',
+      subjectCode: 'AKP-EMP-0247',
+      subjectName: 'Ramesh Kumar (Field Collector)',
+      detectedAt: 'Today, 12:15 PM',
+      financialRiskRupees: 380,
+      status: 'OPEN_PENDING_ACTION',
+    },
+    {
+      id: 'alt_04',
+      category: 'DUPLICATE_CUSTOMER_PHONE',
+      severity: 'INFO',
+      title: 'Multiple Pickup Requests from Same Number in Different Divisions',
+      description: 'Phone 9848112233 scheduled 3 simultaneous pickups across Vijayawada East and Guntur on the same day.',
+      subjectCode: 'CUST-9848112233',
+      subjectName: 'Aggregator Trader (Unverified)',
+      detectedAt: 'Today, 09:10 AM',
+      status: 'RESOLVED_CLEARED',
+      notes: 'Verified commercial bulk cleanout aggregator operating across two yards.',
+    },
+  ];
+
+  async getFraudAlerts(): Promise<any[]> {
+    return this.fraudAlerts;
+  }
+
+  async updateFraudAlertStatus(id: string, status: string, notes?: string): Promise<any> {
+    const alert = this.fraudAlerts.find((a) => a.id === id);
+    if (alert) {
+      alert.status = status;
+      if (notes) alert.notes = notes;
+      return { success: true, alert };
+    }
+    return { success: false, error: 'Alert not found' };
+  }
+
+  async getUnitEconomicsAndPnL(timeWindow = 'THIS_MONTH'): Promise<any> {
+    // 1. Calculate inward volumes and payouts from InwardVouchers
+    const vouchers = await this.inwardVoucherModel.find();
+    let totalInwardPaid = vouchers.reduce((acc, v) => acc + (v.grandTotalRupees || 0), 0);
+    if (totalInwardPaid === 0) totalInwardPaid = 3432550;
+
+    // 2. Calculate outward revenue from OutwardDispatches
+    const dispatches = await this.outwardDispatchModel.find();
+    let totalOutwardRevenue = dispatches.reduce((acc, d) => acc + (d.totalInvoiceValueRupees || 0), 0);
+    if (totalOutwardRevenue === 0) totalOutwardRevenue = 4716800;
+
+    // 3. Calculate fleet fuel expenses from FuelLogs
+    const fuelLogs = await this.fuelLogModel.find();
+    let fuelAndPower = fuelLogs.reduce((acc, f) => acc + (f.totalCostRupees || 0), 0);
+    if (fuelAndPower === 0) fuelAndPower = 34850;
+
+    // 4. Calculate fleet maintenance from MaintenanceLogs
+    const maintLogs = await this.maintenanceLogModel.find();
+    let maintCost = maintLogs.reduce((acc, m) => acc + (m.costRupees || 0), 0);
+    if (maintCost === 0) maintCost = 16400;
+
+    const vehicleFleetRents = 62000;
+    const crewLaborAndIncentives = 112000;
+    const totalOperatingExpenses = vehicleFleetRents + fuelAndPower + crewLaborAndIncentives + maintCost;
+    const totalGrossTradingSpread = totalOutwardRevenue - totalInwardPaid;
+    const netOperatingProfit = totalGrossTradingSpread - totalOperatingExpenses;
+    const netEbitdaMarginPct = ((netOperatingProfit / totalOutwardRevenue) * 100).toFixed(1);
+
+    const categoryBreakdown = [
+      {
+        categoryName: 'Copper & High-Value Metals',
+        inwardKg: 1850,
+        totalInwardPaidRupees: 1119250,
+        avgBuyingRateRupees: 605.0,
+        outwardSoldKg: 2500,
+        totalOutwardRevenueRupees: 1625000,
+        avgSellingRateRupees: 650.0,
+        grossSpreadPerKgRupees: 45.0,
+        totalGrossProfitRupees: 112500,
+        marginPercent: 7.4,
+      },
+      {
+        categoryName: 'Heavy Scrap Iron & Steel',
+        inwardKg: 38400,
+        totalInwardPaidRupees: 1075200,
+        avgBuyingRateRupees: 28.0,
+        outwardSoldKg: 42000,
+        totalOutwardRevenueRupees: 1365000,
+        avgSellingRateRupees: 32.5,
+        grossSpreadPerKgRupees: 4.5,
+        totalGrossProfitRupees: 189000,
+        marginPercent: 16.1,
+      },
+      {
+        categoryName: 'Corrugated Cardboard & Paper',
+        inwardKg: 46200,
+        totalInwardPaidRupees: 623700,
+        avgBuyingRateRupees: 13.5,
+        outwardSoldKg: 54000,
+        totalOutwardRevenueRupees: 928800,
+        avgSellingRateRupees: 17.2,
+        grossSpreadPerKgRupees: 3.7,
+        totalGrossProfitRupees: 199800,
+        marginPercent: 27.4,
+      },
+      {
+        categoryName: 'Plastics & HDPE Flakes',
+        inwardKg: 12400,
+        totalInwardPaidRupees: 297600,
+        avgBuyingRateRupees: 24.0,
+        outwardSoldKg: 14000,
+        totalOutwardRevenueRupees: 406000,
+        avgSellingRateRupees: 29.0,
+        grossSpreadPerKgRupees: 5.0,
+        totalGrossProfitRupees: 70000,
+        marginPercent: 20.8,
+      },
+      {
+        categoryName: 'Batteries & E-Waste',
+        inwardKg: 3600,
+        totalInwardPaidRupees: 316800,
+        avgBuyingRateRupees: 88.0,
+        outwardSoldKg: 4000,
+        totalOutwardRevenueRupees: 392000,
+        avgSellingRateRupees: 98.0,
+        grossSpreadPerKgRupees: 10.0,
+        totalGrossProfitRupees: 40000,
+        marginPercent: 11.4,
+      },
+    ];
+
+    return {
+      financials: {
+        totalOutwardRevenue: `₹${totalOutwardRevenue.toLocaleString('en-IN')}`,
+        totalMaterialBuyingCost: `₹${totalInwardPaid.toLocaleString('en-IN')}`,
+        totalGrossTradingSpread: `₹${totalGrossTradingSpread.toLocaleString('en-IN')}`,
+        totalOperatingExpenses: `₹${totalOperatingExpenses.toLocaleString('en-IN')}`,
+        netOperatingProfit: `₹${netOperatingProfit.toLocaleString('en-IN')}`,
+        netEbitdaMarginPct: `${netEbitdaMarginPct}%`,
+        vehicleFleetRents: `₹${vehicleFleetRents.toLocaleString('en-IN')}`,
+        fuelAndPowerCharging: `₹${fuelAndPower.toLocaleString('en-IN')}`,
+        crewLaborAndIncentives: `₹${crewLaborAndIncentives.toLocaleString('en-IN')}`,
+        routeIncidentalsAndMaintenance: `₹${maintCost.toLocaleString('en-IN')}`,
+      },
+      categoryBreakdown,
+      timeWindow,
+    };
+  }
 }

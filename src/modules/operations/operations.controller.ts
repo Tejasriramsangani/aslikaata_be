@@ -138,4 +138,25 @@ export class OperationsController {
   ) {
     return this.operationsService.updateKycStatus(id, status);
   }
+
+  // --- Unit Economics & P&L ---
+  @Get('unit-economics-pnl')
+  async getUnitEconomicsAndPnL(@Query('timeWindow') timeWindow?: string) {
+    return this.operationsService.getUnitEconomicsAndPnL(timeWindow);
+  }
+
+  // --- Fraud Sentinel Alerts ---
+  @Get('fraud-alerts')
+  async getFraudAlerts() {
+    return this.operationsService.getFraudAlerts();
+  }
+
+  @Patch('fraud-alerts/:id')
+  async updateFraudAlertStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+    @Body('notes') notes?: string,
+  ) {
+    return this.operationsService.updateFraudAlertStatus(id, status, notes);
+  }
 }
