@@ -20,7 +20,8 @@ export class EmployeeRouteController {
 
   @Get('today')
   async getTodayRoute(@CurrentUser() user: any, @Query('date') dateQuery?: string) {
-    const profile = await this.employeeProfileModel.findOne({ userId: user._id });
+    const userId = user?.userId || user?._id?.toString?.() || user?._id;
+    const profile = await this.employeeProfileModel.findOne({ userId });
     if (!profile) {
       return { hasRouteToday: false, message: 'Employee profile not found' };
     }

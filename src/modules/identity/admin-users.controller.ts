@@ -10,19 +10,21 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { IdentityService } from './identity.service.js';
-import { JwtAuthGuard, Public } from '../../common/guards/jwt-auth.guard.js';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles, UserRole } from '../../common/decorators/roles.decorator.js';
 
 @Controller('api/v1/admin/users')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
 export class AdminUsersController {
   constructor(private readonly identityService: IdentityService) {}
 
-  @Public() // Allow reading in ops / protected via header
   @Get()
   async getAdminUsers() {
     return this.identityService.getAdminUsers();
   }
 
-  @Public()
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createAdminUser(
@@ -39,7 +41,6 @@ export class AdminUsersController {
     return this.identityService.createAdminUser(dto);
   }
 
-  @Public()
   @Delete(':id')
   async deleteAdminUser(@Param('id') id: string) {
     return this.identityService.deleteAdminUser(id);

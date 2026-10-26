@@ -5,6 +5,7 @@ import { ScrapProduct, ScrapProductSchema } from './schemas/scrap-product.schema
 import { ScrapRate, ScrapRateSchema } from './schemas/scrap-rate.schema.js';
 import { TimeSlot, TimeSlotSchema } from './schemas/time-slot.schema.js';
 import { WeightRange, WeightRangeSchema } from './schemas/weight-range.schema.js';
+import { AppSetting, AppSettingSchema } from '../routing/schemas/app-setting.schema.js';
 import { CatalogService } from './catalog.service.js';
 import { CatalogController } from './catalog.controller.js';
 
@@ -16,6 +17,7 @@ import { CatalogController } from './catalog.controller.js';
       { name: ScrapRate.name, schema: ScrapRateSchema },
       { name: TimeSlot.name, schema: TimeSlotSchema },
       { name: WeightRange.name, schema: WeightRangeSchema },
+      { name: AppSetting.name, schema: AppSettingSchema },
     ]),
   ],
   controllers: [CatalogController],

@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -14,6 +16,7 @@ import {
   SetProductRateDto,
   CreateTimeSlotDto,
   CreateWeightRangeDto,
+  UpdateWeightRangeDto,
 } from './dto/catalog.dto.js';
 import { JwtAuthGuard, Public } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
@@ -54,7 +57,8 @@ export class CatalogController {
   @Public()
   @Get('catalog/weight-ranges')
   async getWeightRanges() {
-    return this.catalogService.listWeightRanges(true);
+    // Includes bulkLimitKg + isBulk flags for customer booking UI
+    return this.catalogService.listCustomerWeightRanges();
   }
 
   // --- Admin Endpoints ---
@@ -99,9 +103,30 @@ export class CatalogController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @Get('admin/catalog/weight-ranges')
+  async listAdminWeightRanges() {
+    return this.catalogService.listWeightRanges(false);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @Post('admin/catalog/weight-ranges')
   async createWeightRange(@Body() dto: CreateWeightRangeDto) {
     return this.catalogService.createWeightRange(dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Patch('admin/catalog/weight-ranges/:id')
+  async updateWeightRange(@Param('id') id: string, @Body() dto: UpdateWeightRangeDto) {
+    return this.catalogService.updateWeightRange(id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Delete('admin/catalog/weight-ranges/:id')
+  async deleteWeightRange(@Param('id') id: string) {
+    return this.catalogService.deleteWeightRange(id);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

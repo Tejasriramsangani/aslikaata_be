@@ -29,7 +29,8 @@ export class AppSettingsService {
   }
 
   async getBulkLimitKg(): Promise<number> {
-    return this.getSetting<number>('bulkLimitKg', 10);
+    // Default 50 kg aligns with the seeded "50+ kg" bulk range
+    return this.getSetting<number>('bulkLimitKg', 50);
   }
 
   async getOrderRules(): Promise<{
@@ -40,7 +41,7 @@ export class AppSettingsService {
   }> {
     const [bulkLimitKg, routeFinalizeHoursBefore, autoAssignRetryMinutes, maxPickupsPerEmployeeSlot] =
       await Promise.all([
-        this.getSetting<number>('bulkLimitKg', 10),
+        this.getSetting<number>('bulkLimitKg', 50),
         this.getSetting<number>('routeFinalizeHoursBefore', 18),
         this.getSetting<number>('autoAssignRetryMinutes', 5),
         this.getSetting<number>('maxPickupsPerEmployeeSlot', 4),

@@ -53,14 +53,14 @@ export class EmployeesService implements OnModuleInit {
     try {
       const demoEmployees = [
         {
-          mobile: '+919848011111',
+          mobile: '9848011111',
           code: 'EMP-001',
           fullName: 'Ramesh Kumar',
           vehicleType: 'Tata Ace Gold (Diesel)',
           vehicleNumber: 'AP 16 TX 4920',
         },
         {
-          mobile: '+919848022222',
+          mobile: '9848022222',
           code: 'EMP-002',
           fullName: 'Suresh Babu',
           vehicleType: 'Electric 3-Wheeler Cargo',
@@ -69,7 +69,9 @@ export class EmployeesService implements OnModuleInit {
       ];
 
       for (const d of demoEmployees) {
-        let user = await this.userModel.findOne({ mobile: d.mobile });
+        let user = await this.userModel.findOne({
+          mobile: { $in: [d.mobile, `+91${d.mobile}`] },
+        });
         if (!user) {
           user = await this.userModel.create({
             mobile: d.mobile,

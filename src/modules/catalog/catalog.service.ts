@@ -13,14 +13,18 @@ import { ScrapProduct, ScrapProductDocument } from './schemas/scrap-product.sche
 import { ScrapRate, ScrapRateDocument } from './schemas/scrap-rate.schema.js';
 import { TimeSlot, TimeSlotDocument } from './schemas/time-slot.schema.js';
 import { WeightRange, WeightRangeDocument } from './schemas/weight-range.schema.js';
+import { AppSetting, AppSettingDocument } from '../routing/schemas/app-setting.schema.js';
 import {
   CreateCategoryDto,
   CreateProductDto,
   SetProductRateDto,
   CreateTimeSlotDto,
   CreateWeightRangeDto,
+  UpdateWeightRangeDto,
 } from './dto/catalog.dto.js';
 import { TransactionRunner } from '../../common/database/transaction-runner.js';
+
+const DEFAULT_BULK_LIMIT_KG = 50;
 
 @Injectable()
 export class CatalogService implements OnModuleInit {
@@ -37,6 +41,8 @@ export class CatalogService implements OnModuleInit {
     private readonly slotModel: Model<TimeSlotDocument>,
     @InjectModel(WeightRange.name)
     private readonly weightRangeModel: Model<WeightRangeDocument>,
+    @InjectModel(AppSetting.name)
+    private readonly appSettingModel: Model<AppSettingDocument>,
     private readonly transactionRunner: TransactionRunner,
   ) {}
 
@@ -47,9 +53,58 @@ export class CatalogService implements OnModuleInit {
         this.logger.log('Catalog empty on boot. Seeding default scrap catalog...');
         await this.seedDefaultCatalog('system_bootstrap');
         this.logger.log('Default ASLI KAATA Scrap Catalog auto-seeded successfully.');
+      } else {
+        // Categories may exist from an older seed that skipped ranges/slots.
+        await this.ensureWeightRangesAndSlots();
       }
     } catch (err: any) {
       this.logger.warn(`Catalog auto-seed deferred: ${err.message}`);
+    }
+  }
+
+  /**
+   * Ensures booking weight ranges and time slots exist even when categories
+   * were seeded earlier without them (common cause of empty weight step in FE).
+   */
+  async ensureWeightRangesAndSlots(): Promise<void> {
+    // Older insertMany seeds omitted isActive; public list filters isActive:true → empty UI.
+    await this.weightRangeModel.updateMany(
+      { $or: [{ isActive: { $exists: false } }, { isActive: null }] },
+      { $set: { isActive: true } },
+    );
+    await this.slotModel.updateMany(
+      { $or: [{ isActive: { $exists: false } }, { isActive: null }] },
+      { $set: { isActive: true } },
+    );
+
+    const [rangeCount, slotCount] = await Promise.all([
+      this.weightRangeModel.countDocuments(),
+      this.slotModel.countDocuments(),
+    ]);
+
+    if (rangeCount === 0) {
+      const ranges = [
+        { name: 'XS', displayLabel: '0 – 10 kg', minGrams: 0, maxGrams: 10000, displayOrder: 1, isActive: true },
+        { name: 'SMALL', displayLabel: '10 – 20 kg', minGrams: 10000, maxGrams: 20000, displayOrder: 2, isActive: true },
+        { name: 'MEDIUM', displayLabel: '20 – 30 kg', minGrams: 20000, maxGrams: 30000, displayOrder: 3, isActive: true },
+        { name: 'LARGE', displayLabel: '30 – 50 kg', minGrams: 30000, maxGrams: 50000, displayOrder: 4, isActive: true },
+        { name: 'BULK', displayLabel: '50+ kg', minGrams: 50000, maxGrams: 10000000, displayOrder: 5, isActive: true },
+      ];
+      await this.weightRangeModel.insertMany(ranges);
+      this.logger.log(`Seeded ${ranges.length} default weight ranges`);
+    }
+
+    if (slotCount === 0) {
+      const slots = [
+        { startTime: '09:00', endTime: '11:00', displayLabel: '9:00 AM – 11:00 AM', maxPickups: 15, displayOrder: 1, isActive: true },
+        { startTime: '11:00', endTime: '13:00', displayLabel: '11:00 AM – 1:00 PM', maxPickups: 15, displayOrder: 2, isActive: true },
+        { startTime: '13:00', endTime: '15:00', displayLabel: '1:00 PM – 3:00 PM', maxPickups: 15, displayOrder: 3, isActive: true },
+        { startTime: '15:00', endTime: '17:00', displayLabel: '3:00 PM – 5:00 PM', maxPickups: 15, displayOrder: 4, isActive: true },
+        { startTime: '17:00', endTime: '19:00', displayLabel: '5:00 PM – 7:00 PM', maxPickups: 15, displayOrder: 5, isActive: true },
+        { startTime: '19:00', endTime: '20:00', displayLabel: '7:00 PM – 8:00 PM', maxPickups: 15, displayOrder: 6, isActive: true },
+      ];
+      await this.slotModel.insertMany(slots);
+      this.logger.log(`Seeded ${slots.length} default time slots`);
     }
   }
 
@@ -258,6 +313,9 @@ export class CatalogService implements OnModuleInit {
   }
 
   async createWeightRange(dto: CreateWeightRangeDto): Promise<WeightRangeDocument> {
+    if (dto.maxGrams <= dto.minGrams) {
+      throw new BadRequestException('maxGrams must be greater than minGrams');
+    }
     return this.weightRangeModel.create({
       name: dto.name,
       displayLabel: dto.displayLabel,
@@ -268,9 +326,86 @@ export class CatalogService implements OnModuleInit {
     });
   }
 
+  async updateWeightRange(id: string, dto: UpdateWeightRangeDto): Promise<WeightRangeDocument> {
+    const existing = await this.weightRangeModel.findById(id);
+    if (!existing) {
+      throw new NotFoundException(`Weight range ${id} not found`);
+    }
+
+    const nextMin = dto.minGrams ?? existing.minGrams;
+    const nextMax = dto.maxGrams ?? existing.maxGrams;
+    if (nextMax <= nextMin) {
+      throw new BadRequestException('maxGrams must be greater than minGrams');
+    }
+
+    if (dto.name !== undefined) existing.name = dto.name;
+    if (dto.displayLabel !== undefined) existing.displayLabel = dto.displayLabel;
+    if (dto.minGrams !== undefined) existing.minGrams = dto.minGrams;
+    if (dto.maxGrams !== undefined) existing.maxGrams = dto.maxGrams;
+    if (dto.displayOrder !== undefined) existing.displayOrder = dto.displayOrder;
+    if (dto.isActive !== undefined) existing.isActive = dto.isActive;
+    await existing.save();
+    return existing;
+  }
+
+  async deleteWeightRange(id: string): Promise<{ success: boolean }> {
+    const existing = await this.weightRangeModel.findById(id);
+    if (!existing) {
+      throw new NotFoundException(`Weight range ${id} not found`);
+    }
+    // Soft-delete so historical pickup snapshots remain valid
+    existing.isActive = false;
+    await existing.save();
+    return { success: true };
+  }
+
   async listWeightRanges(activeOnly: boolean = true): Promise<WeightRangeDocument[]> {
+    await this.ensureWeightRangesAndSlots();
     const filter = activeOnly ? { isActive: true } : {};
     return this.weightRangeModel.find(filter).sort({ displayOrder: 1, minGrams: 1 });
+  }
+
+  private async getBulkLimitKg(): Promise<number> {
+    const setting = await this.appSettingModel.findOne({ key: 'bulkLimitKg' }).lean();
+    const value = setting?.value;
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_BULK_LIMIT_KG;
+  }
+
+  /**
+   * Customer booking payload: ranges + which ones count as bulk
+   * (minKg >= admin bulkLimitKg threshold).
+   */
+  async listCustomerWeightRanges(): Promise<{
+    bulkLimitKg: number;
+    ranges: Array<Record<string, any>>;
+  }> {
+    const [ranges, bulkLimitKg] = await Promise.all([
+      this.listWeightRanges(true),
+      this.getBulkLimitKg(),
+    ]);
+
+    return {
+      bulkLimitKg,
+      ranges: ranges.map((r) => {
+        const minKg = (r.minGrams || 0) / 1000;
+        const maxKg = (r.maxGrams || 0) / 1000;
+        const isBulk = minKg >= bulkLimitKg;
+        return {
+          _id: r._id,
+          id: r._id.toString(),
+          name: r.name,
+          displayLabel: r.displayLabel,
+          minGrams: r.minGrams,
+          maxGrams: r.maxGrams,
+          minKg,
+          maxKg,
+          displayOrder: r.displayOrder,
+          isActive: r.isActive,
+          isBulk,
+        };
+      }),
+    };
   }
 
   // --- Default Seed Utility ---
@@ -357,26 +492,8 @@ export class CatalogService implements OnModuleInit {
       }
     }
 
-    // 2. Weight Ranges
-    const ranges = [
-      { name: 'SMALL', displayLabel: 'Below 20 kg', minGrams: 0, maxGrams: 20000, displayOrder: 1 },
-      { name: 'MEDIUM', displayLabel: '20 - 50 kg', minGrams: 20000, maxGrams: 50000, displayOrder: 2 },
-      { name: 'LARGE', displayLabel: '50 - 100 kg', minGrams: 50000, maxGrams: 100000, displayOrder: 3 },
-      { name: 'COMMERCIAL', displayLabel: '100+ kg', minGrams: 100000, maxGrams: 10000000, displayOrder: 4 },
-    ];
-    for (const r of ranges) {
-      await this.weightRangeModel.create(r);
-    }
-
-    // 3. Time Slots
-    const slots = [
-      { startTime: '09:00', endTime: '12:00', displayLabel: '09:00 AM - 12:00 PM', maxPickups: 15, displayOrder: 1 },
-      { startTime: '12:00', endTime: '15:00', displayLabel: '12:00 PM - 03:00 PM', maxPickups: 15, displayOrder: 2 },
-      { startTime: '15:00', endTime: '18:00', displayLabel: '03:00 PM - 06:00 PM', maxPickups: 15, displayOrder: 3 },
-    ];
-    for (const s of slots) {
-      await this.slotModel.create(s);
-    }
+    // 2. Weight Ranges + 3. Time Slots (shared helper)
+    await this.ensureWeightRangesAndSlots();
 
     this.logger.log('Default catalog seeded successfully!');
     return 'Default catalog seeded successfully';

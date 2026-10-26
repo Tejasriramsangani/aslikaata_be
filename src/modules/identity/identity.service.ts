@@ -107,11 +107,13 @@ export class IdentityService implements OnModuleInit {
 
       // Seed Test & Employee accounts
       for (const testUser of [
-        { mobile: '+919999999999', roles: [UserRole.ADMIN, UserRole.CUSTOMER, UserRole.EMPLOYEE] },
-        { mobile: '+919848011111', roles: [UserRole.EMPLOYEE] },
-        { mobile: '+919848022222', roles: [UserRole.EMPLOYEE] },
+        { mobile: '9999999999', roles: [UserRole.ADMIN, UserRole.CUSTOMER, UserRole.EMPLOYEE] },
+        { mobile: '9848011111', roles: [UserRole.EMPLOYEE] },
+        { mobile: '9848022222', roles: [UserRole.EMPLOYEE] },
       ]) {
-        let u = await this.userModel.findOne({ mobile: testUser.mobile });
+        let u = await this.userModel.findOne({
+          mobile: { $in: [testUser.mobile, `+91${testUser.mobile}`] },
+        });
         if (!u) {
           await this.userModel.create({
             mobile: testUser.mobile,
@@ -196,11 +198,9 @@ export class IdentityService implements OnModuleInit {
 
     const isMasterTestOtp =
       dto.code === '123456' &&
-      (dto.mobile === '+919848011111' ||
-        dto.mobile === '+919848022222' ||
-        dto.mobile === '+919999999999' ||
-        dto.mobile.includes('9848011111') ||
-        dto.mobile.includes('9848022222') ||
+      (dto.mobile === '9848011111' ||
+        dto.mobile === '9848022222' ||
+        dto.mobile === '9999999999' ||
         process.env.NODE_ENV !== 'production');
 
     const challenge = await this.otpModel
@@ -235,7 +235,9 @@ export class IdentityService implements OnModuleInit {
 
     // Find or create user
     const roleToAssign = dto.requestedRole || UserRole.CUSTOMER;
-    let user = await this.userModel.findOne({ mobile: dto.mobile });
+    let user = await this.userModel.findOne({
+      mobile: { $in: [dto.mobile, `+91${dto.mobile}`] },
+    });
 
     if (!user) {
       user = await this.userModel.create({

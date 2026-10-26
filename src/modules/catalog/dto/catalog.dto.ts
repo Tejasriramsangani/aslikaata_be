@@ -120,3 +120,31 @@ export class CreateWeightRangeDto {
   @IsInt()
   displayOrder?: number;
 }
+
+export class UpdateWeightRangeDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  displayLabel?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minGrams?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxGrams?: number;
+
+  @IsOptional()
+  @IsInt()
+  displayOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
