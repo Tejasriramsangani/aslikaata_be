@@ -239,59 +239,23 @@ export class PickupsService {
     }
 
     pickup.orderMeta = orderMeta;
+    // Manual dispatch for now (weekly auto-routing is a future upgrade).
+    // Customer slot is stored; admin accepts + assigns any available employee.
+    pickup.unassigned = true;
+    pickup.needsAdminReview = true;
     await pickup.save();
 
-    // 2. Routing / Assignment based on orderType
-    let resultPickup: PickupDocument = pickup;
-
-    if (orderMeta.orderType === 'BULK') {
-      if (this.bulkAutoAssignService) {
-        const autoRes = await this.bulkAutoAssignService.tryAutoAssign(pickup);
-        if (autoRes.assigned) {
-          resultPickup = pickup;
-        } else {
-          // Unassigned bulk pickup stays in REQUESTED with unassigned: true
-          resultPickup = pickup;
-        }
-      } else {
-        resultPickup = await this.stateMachine.transition({
-          pickup,
-          toStatus: PickupStatus.SCHEDULED,
-          actor: { userId: customerId, role: 'SYSTEM', name: 'System Scheduler' },
-          payload: { bookedSlot: slot.displayLabel },
-        });
-      }
-    } else {
-      // WEEKLY Order: attach to division route run
-      if (this.divisionService && this.routeRunsService) {
-        const division = await this.divisionService.findDivisionForAddress({
-          pincode: address.pincode,
-          location: address.location,
-        });
-
-        if (division) {
-          const run = await this.routeRunsService.placeWeeklyPickup(pickup, division._id.toString());
-          if (run) {
-            resultPickup = pickup;
-          } else {
-            pickup.needsAdminReview = true;
-            await pickup.save();
-            resultPickup = pickup;
-          }
-        } else {
-          pickup.needsAdminReview = true;
-          await pickup.save();
-          resultPickup = pickup;
-        }
-      } else {
-        resultPickup = await this.stateMachine.transition({
-          pickup,
-          toStatus: PickupStatus.SCHEDULED,
-          actor: { userId: customerId, role: 'SYSTEM', name: 'System Scheduler' },
-          payload: { bookedSlot: slot.displayLabel },
-        });
-      }
-    }
+    let resultPickup: PickupDocument = await this.stateMachine.transition({
+      pickup,
+      toStatus: PickupStatus.SCHEDULED,
+      actor: { userId: customerId, role: 'SYSTEM', name: 'System Scheduler' },
+      payload: {
+        bookedSlot: slot.displayLabel,
+        scheduledDate: dto.scheduledDate,
+        awaitAdminAssign: true,
+        orderType: orderMeta.orderType,
+      },
+    });
 
     if (this.outboxService) {
       await this.outboxService.createEvent('pickup.requested', {
@@ -338,7 +302,28 @@ export class PickupsService {
     if (!pickup) {
       throw new NotFoundException('Pickup not found');
     }
+    return this.applyReschedule(pickup, dto, 'CUSTOMER');
+  }
 
+  /** Admin can move a pending order to another date/slot when no employee is free. */
+  async adminReschedulePickup(
+    pickupId: string,
+    adminUserId: string,
+    dto: ReschedulePickupDto,
+  ): Promise<PickupDocument> {
+    const pickup = await this.pickupModel.findById(pickupId);
+    if (!pickup) {
+      throw new NotFoundException('Pickup not found');
+    }
+    return this.applyReschedule(pickup, dto, 'ADMIN', adminUserId);
+  }
+
+  private async applyReschedule(
+    pickup: PickupDocument,
+    dto: ReschedulePickupDto,
+    actor: 'CUSTOMER' | 'ADMIN',
+    adminUserId?: string,
+  ): Promise<PickupDocument> {
     const lockedStatuses = [
       PickupStatus.ON_THE_WAY,
       PickupStatus.ARRIVED,
@@ -370,6 +355,15 @@ export class PickupsService {
       }
     }
 
+    // Keep in queue for later assign after admin moves the slot
+    if (
+      pickup.status === PickupStatus.REQUESTED ||
+      pickup.status === PickupStatus.SCHEDULED
+    ) {
+      pickup.unassigned = true;
+      pickup.needsAdminReview = true;
+    }
+
     if (!pickup.timestamps.scheduledAt) {
       pickup.timestamps.scheduledAt = new Date();
     }
@@ -385,6 +379,9 @@ export class PickupsService {
         scheduledDate: pickup.scheduledDate,
         timeSlot: pickup.timeSlotSnapshot?.displayLabel,
         action: 'RESCHEDULED',
+        actor,
+        adminUserId,
+        reason: dto.reason || '',
       });
     }
 

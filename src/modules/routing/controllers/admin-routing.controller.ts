@@ -219,13 +219,21 @@ export class AdminRoutingController {
   }
 
   // --- Unassigned Queue (Section 4, 8 & 9) ---
+  // Pending customer requests awaiting admin accept + manual employee assign.
   @Get('pickups/unassigned')
   async getUnassignedQueue() {
     return this.pickupModel
       .find({
-        $or: [{ unassigned: true }, { needsAdminReview: true }],
         status: { $in: [PickupStatus.REQUESTED, PickupStatus.SCHEDULED] },
+        $or: [
+          { unassigned: true },
+          { needsAdminReview: true },
+          { 'assignment.employeeProfileId': { $exists: false } },
+          { 'assignment.employeeProfileId': null },
+          { 'assignment.employeeProfileId': '' },
+        ],
       })
-      .sort({ createdAt: -1 });
+      .populate('categories')
+      .sort({ scheduledDate: 1, createdAt: -1 });
   }
 }

@@ -213,6 +213,16 @@ export class PickupsController {
   }
 
   @Roles(UserRole.ADMIN)
+  @Patch('admin/pickups/:id/reschedule')
+  async adminReschedulePickup(
+    @CurrentUser() admin: CurrentUserPayload,
+    @Param('id') pickupId: string,
+    @Body() dto: ReschedulePickupDto,
+  ) {
+    return this.pickupsService.adminReschedulePickup(pickupId, admin.userId, dto);
+  }
+
+  @Roles(UserRole.ADMIN)
   @Post('admin/pickups/:id/cancel')
   async adminCancelPickup(
     @CurrentUser() admin: CurrentUserPayload,
