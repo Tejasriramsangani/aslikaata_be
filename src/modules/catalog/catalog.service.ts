@@ -26,6 +26,60 @@ import { TransactionRunner } from '../../common/database/transaction-runner.js';
 
 const DEFAULT_BULK_LIMIT_KG = 50;
 
+const DEFAULT_CATALOG_SEED: Array<{
+  category: { name: string; code: string; displayOrder: number };
+  products: Array<{ name: string; code: string; ratePaise: number }>;
+}> = [
+  {
+    category: { name: 'Paper', code: 'PAPER', displayOrder: 1 },
+    products: [
+      { name: 'Newspaper', code: 'NEWSPAPER', ratePaise: 1400 }, // Rs 14.00/kg
+      { name: 'Cardboard / Carton', code: 'CARDBOARD', ratePaise: 900 }, // Rs 9.00/kg
+      { name: 'White Office Paper', code: 'WHITE_PAPER', ratePaise: 1200 }, // Rs 12.00/kg
+      { name: 'Magazines & Books', code: 'MAGAZINES', ratePaise: 1000 }, // Rs 10.00/kg
+    ],
+  },
+  {
+    category: { name: 'Metal', code: 'METAL', displayOrder: 2 },
+    products: [
+      { name: 'Iron / Loha', code: 'IRON', ratePaise: 2800 }, // Rs 28.00/kg
+      { name: 'Copper / Tamba', code: 'COPPER', ratePaise: 65000 }, // Rs 650.00/kg
+      { name: 'Brass / Peetal', code: 'BRASS', ratePaise: 42000 }, // Rs 420.00/kg
+      { name: 'Aluminium', code: 'ALUMINIUM', ratePaise: 14000 }, // Rs 140.00/kg
+      { name: 'Stainless Steel', code: 'STEEL', ratePaise: 4500 }, // Rs 45.00/kg
+    ],
+  },
+  {
+    category: { name: 'Plastic', code: 'PLASTIC', displayOrder: 3 },
+    products: [
+      { name: 'PET Bottles', code: 'PET_BOTTLE', ratePaise: 1500 }, // Rs 15.00/kg
+      { name: 'Hard Plastic', code: 'HARD_PLASTIC', ratePaise: 1200 }, // Rs 12.00/kg
+      { name: 'Polythene & Soft Plastic', code: 'SOFT_PLASTIC', ratePaise: 600 }, // Rs 6.00/kg
+    ],
+  },
+  {
+    category: { name: 'E-Waste', code: 'E_WASTE', displayOrder: 4 },
+    products: [
+      { name: 'E-Waste / Electronics', code: 'ELECTRONICS', ratePaise: 3000 }, // Rs 30.00/kg
+      { name: 'Lead Acid Batteries', code: 'BATTERY', ratePaise: 8000 }, // Rs 80.00/kg
+    ],
+  },
+  {
+    category: { name: 'Rubber', code: 'RUBBER', displayOrder: 5 },
+    products: [
+      { name: 'Tyres & Tubes', code: 'TYRES', ratePaise: 500 }, // Rs 5.00/kg
+      { name: 'General Rubber', code: 'GEN_RUBBER', ratePaise: 400 }, // Rs 4.00/kg
+    ],
+  },
+  {
+    category: { name: 'Others', code: 'OTHERS', displayOrder: 6 },
+    products: [
+      { name: 'Beer / Glass Bottles', code: 'GLASS_BOTTLES', ratePaise: 250 }, // Rs 2.50/kg
+      { name: 'Mixed Scrap', code: 'MIXED_SCRAP', ratePaise: 300 }, // Rs 3.00/kg
+    ],
+  },
+];
+
 @Injectable()
 export class CatalogService implements OnModuleInit {
   private readonly logger = new Logger(CatalogService.name);
@@ -51,12 +105,11 @@ export class CatalogService implements OnModuleInit {
       const count = await this.categoryModel.countDocuments();
       if (count === 0) {
         this.logger.log('Catalog empty on boot. Seeding default scrap catalog...');
-        await this.seedDefaultCatalog('system_bootstrap');
-        this.logger.log('Default ASLI KAATA Scrap Catalog auto-seeded successfully.');
       } else {
-        // Categories may exist from an older seed that skipped ranges/slots.
-        await this.ensureWeightRangesAndSlots();
+        this.logger.log('Verifying default catalog on boot (top-up missing entries)...');
       }
+      const message = await this.ensureDefaultCatalog('system_bootstrap');
+      this.logger.log(message);
     } catch (err: any) {
       this.logger.warn(`Catalog auto-seed deferred: ${err.message}`);
     }
@@ -411,91 +464,69 @@ export class CatalogService implements OnModuleInit {
   // --- Default Seed Utility ---
 
   /**
-   * Seeds initial categories, products, rates, slots, and ranges if DB is empty.
+   * Completes the default catalog idempotently: creates any missing category,
+   * product, or active rate from the seed data, leaving existing rows untouched.
+   * Rates follow Rule 5.4 — a rate row is only created when a product has no
+   * active rate at all; existing rates are never edited or closed.
    */
-  async seedDefaultCatalog(systemUserId: string): Promise<string> {
-    const existingCats = await this.categoryModel.countDocuments();
-    if (existingCats > 0) {
-      return 'Catalog is already populated';
-    }
+  async ensureDefaultCatalog(systemUserId: string): Promise<string> {
+    let createdCategories = 0;
+    let createdProducts = 0;
+    let createdRates = 0;
 
-    this.logger.log('Seeding default ASLI KAATA catalog...');
-
-    // 1. Categories & Products & Rates (in integer paise)
-    const seedData = [
-      {
-        category: { name: 'Paper', code: 'PAPER', displayOrder: 1 },
-        products: [
-          { name: 'Newspaper', code: 'NEWSPAPER', ratePaise: 1400 }, // Rs 14.00/kg
-          { name: 'Cardboard / Carton', code: 'CARDBOARD', ratePaise: 900 }, // Rs 9.00/kg
-          { name: 'White Office Paper', code: 'WHITE_PAPER', ratePaise: 1200 }, // Rs 12.00/kg
-          { name: 'Magazines & Books', code: 'MAGAZINES', ratePaise: 1000 }, // Rs 10.00/kg
-        ],
-      },
-      {
-        category: { name: 'Metal', code: 'METAL', displayOrder: 2 },
-        products: [
-          { name: 'Iron / Loha', code: 'IRON', ratePaise: 2800 }, // Rs 28.00/kg
-          { name: 'Copper / Tamba', code: 'COPPER', ratePaise: 65000 }, // Rs 650.00/kg
-          { name: 'Brass / Peetal', code: 'BRASS', ratePaise: 42000 }, // Rs 420.00/kg
-          { name: 'Aluminium', code: 'ALUMINIUM', ratePaise: 14000 }, // Rs 140.00/kg
-          { name: 'Stainless Steel', code: 'STEEL', ratePaise: 4500 }, // Rs 45.00/kg
-        ],
-      },
-      {
-        category: { name: 'Plastic', code: 'PLASTIC', displayOrder: 3 },
-        products: [
-          { name: 'PET Bottles', code: 'PET_BOTTLE', ratePaise: 1500 }, // Rs 15.00/kg
-          { name: 'Hard Plastic', code: 'HARD_PLASTIC', ratePaise: 1200 }, // Rs 12.00/kg
-          { name: 'Polythene & Soft Plastic', code: 'SOFT_PLASTIC', ratePaise: 600 }, // Rs 6.00/kg
-        ],
-      },
-      {
-        category: { name: 'E-Waste', code: 'E_WASTE', displayOrder: 4 },
-        products: [
-          { name: 'E-Waste / Electronics', code: 'ELECTRONICS', ratePaise: 3000 }, // Rs 30.00/kg
-          { name: 'Lead Acid Batteries', code: 'BATTERY', ratePaise: 8000 }, // Rs 80.00/kg
-        ],
-      },
-      {
-        category: { name: 'Rubber', code: 'RUBBER', displayOrder: 5 },
-        products: [
-          { name: 'Tyres & Tubes', code: 'TYRES', ratePaise: 500 }, // Rs 5.00/kg
-          { name: 'General Rubber', code: 'GEN_RUBBER', ratePaise: 400 }, // Rs 4.00/kg
-        ],
-      },
-      {
-        category: { name: 'Others', code: 'OTHERS', displayOrder: 6 },
-        products: [
-          { name: 'Beer / Glass Bottles', code: 'GLASS_BOTTLES', ratePaise: 250 }, // Rs 2.50/kg
-          { name: 'Mixed Scrap', code: 'MIXED_SCRAP', ratePaise: 300 }, // Rs 3.00/kg
-        ],
-      },
-    ];
-
-    for (const group of seedData) {
-      const cat = await this.categoryModel.create(group.category);
-      for (const prod of group.products) {
-        const p = await this.productModel.create({
-          categoryId: cat._id.toString(),
-          name: prod.name,
-          code: prod.code,
+    for (const group of DEFAULT_CATALOG_SEED) {
+      let category = await this.categoryModel.findOne({ code: group.category.code });
+      if (!category) {
+        category = await this.categoryModel.create({
+          ...group.category,
+          isActive: true,
         });
+        createdCategories += 1;
+      }
 
-        await this.rateModel.create({
-          productId: p._id.toString(),
-          ratePerKg: prod.ratePaise,
-          effectiveFrom: new Date(),
+      for (const productSeed of group.products) {
+        let product = await this.productModel.findOne({ code: productSeed.code });
+        if (!product) {
+          product = await this.productModel.create({
+            categoryId: category._id.toString(),
+            name: productSeed.name,
+            code: productSeed.code,
+            isActive: true,
+          });
+          createdProducts += 1;
+        }
+
+        const activeRate = await this.rateModel.findOne({
+          productId: product._id.toString(),
           effectiveTo: null,
-          createdById: systemUserId,
         });
+        if (!activeRate) {
+          await this.rateModel.create({
+            productId: product._id.toString(),
+            ratePerKg: productSeed.ratePaise,
+            effectiveFrom: new Date(),
+            effectiveTo: null,
+            createdById: systemUserId,
+          });
+          createdRates += 1;
+        }
       }
     }
 
-    // 2. Weight Ranges + 3. Time Slots (shared helper)
     await this.ensureWeightRangesAndSlots();
 
-    this.logger.log('Default catalog seeded successfully!');
-    return 'Default catalog seeded successfully';
+    if (createdCategories === 0 && createdProducts === 0 && createdRates === 0) {
+      return 'Default catalog already complete';
+    }
+    return `Default catalog topped up: ${createdCategories} categories, ${createdProducts} products, ${createdRates} rates created`;
+  }
+
+  /**
+   * Seeds initial categories, products, rates, slots, and ranges if DB is empty.
+   * Kept for the admin "Seed catalog" action — it now completes missing entries
+   * instead of refusing when the catalog is partially populated.
+   */
+  async seedDefaultCatalog(systemUserId: string): Promise<string> {
+    return this.ensureDefaultCatalog(systemUserId);
   }
 }

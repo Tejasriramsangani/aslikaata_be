@@ -263,12 +263,14 @@ export class SettlementsService {
     // Generate atomic sequence invoice number (INV-10001)
     const invoiceNumber = await this.sequenceService.generateInvoiceNumber();
 
-    // Execute atomic Multi-Document MongoDB Transaction (Rule 5.6 & 9)
+    // Execute atomic Multi-Document MongoDB Transaction (Rule 5.6 & 9).
+    // On standalone MongoDB (dev), TransactionRunner falls back to running
+    // without a session (session = null). Mongoose ignores { session: null }.
     const validPickup = pickup;
     const result = await this.transactionRunner.runInTransaction(async (session) => {
       // 1. Mark OTP challenge as consumed
       challenge.consumedAt = now;
-      await challenge.save({ session });
+      await challenge.save(session ? { session } : undefined);
 
       // 2. Determine invoice type (Rule 5.10: Donation becomes donation receipt)
       const invoiceType =
@@ -305,7 +307,7 @@ export class SettlementsService {
             issuedAt: now,
           },
         ],
-        { session },
+        session ? { session } : {},
       );
 
       // 4. Update timestamps and complete pickup in state machine
@@ -330,7 +332,11 @@ export class SettlementsService {
 
       // 5. Update atomic pre-aggregated dailystats (Section 9 & 10)
       if (this.dailyStatsService) {
-        await this.dailyStatsService.recordPickupCompletion(validPickup, settlement, session);
+        await this.dailyStatsService.recordPickupCompletion(
+          validPickup,
+          settlement,
+          session ?? undefined,
+        );
       }
 
       return { pickup: validPickup, invoice };
