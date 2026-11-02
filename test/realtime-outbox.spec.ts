@@ -74,6 +74,7 @@ describe('Phase 6: Real-Time Sockets, Outbox Worker & GPS Streaming', () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'admin-user-1',
         roles: [UserRole.ADMIN],
+        staffRole: 'SUPER_ADMIN',
       });
 
       await gateway.handleConnection(mockSocket);
@@ -81,6 +82,31 @@ describe('Phase 6: Real-Time Sockets, Outbox Worker & GPS Streaming', () => {
       expect(mockSocket.join).toHaveBeenCalledWith('user:admin-user-1');
       expect(mockSocket.join).toHaveBeenCalledWith('admin:queue');
       expect(mockSocket.join).toHaveBeenCalledWith('admin:dashboard');
+    });
+
+    it('does not join admin rooms for an ADMIN flag without a staff role', async () => {
+      const mockSocket: any = {
+        id: 'sock-4',
+        handshake: { auth: { token: 'Bearer odd-token' } },
+        data: {},
+        join: vi.fn(),
+        disconnect: vi.fn(),
+      };
+      mockJwtService.verify.mockReturnValue({ sub: 'odd-1', roles: [UserRole.ADMIN] });
+
+      await gateway.handleConnection(mockSocket);
+
+      expect(mockSocket.join).not.toHaveBeenCalledWith('admin:queue');
+      expect(mockSocket.join).not.toHaveBeenCalledWith('admin:dashboard');
+    });
+
+    it('rejects sockets that present no token (no anonymous admin fallback)', async () => {
+      const mockSocket: any = { id: 'sock-5', handshake: { auth: {} }, data: {}, join: vi.fn(), disconnect: vi.fn() };
+
+      await gateway.handleConnection(mockSocket);
+
+      expect(mockSocket.disconnect).toHaveBeenCalled();
+      expect(mockSocket.join).not.toHaveBeenCalled();
     });
 
     it('Task 6.1.3: should handle join_pickup_room', () => {

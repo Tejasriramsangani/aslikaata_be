@@ -43,6 +43,6 @@ import { MockSmsService } from './sms/mock-sms.service.js';
       inject: [ConfigService],
     },
   ],
-  exports: [IdentityService, JwtStrategy, PassportModule, JwtModule, MongooseModule],
+  exports: [IdentityService, JwtStrategy, PassportModule, JwtModule, MongooseModule, SMS_SERVICE],
 })
 export class IdentityModule {}

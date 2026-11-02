@@ -1,5 +1,6 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
+import { IsEnum, IsIn, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 import { OtpPurpose } from '../schemas/otp-challenge.schema.js';
+import { UserRole } from '../../../common/decorators/roles.decorator.js';
 
 export class SendOtpDto {
   @IsNotEmpty()
@@ -16,4 +17,12 @@ export class SendOtpDto {
   @IsOptional()
   @IsString()
   pickupId?: string;
+
+  /**
+   * Set by the employee app: only send an OTP if this number already has an employee account.
+   * (Without it the OTP flow keeps its old behaviour, e.g. for the customer app.)
+   */
+  @IsOptional()
+  @IsIn([UserRole.EMPLOYEE])
+  loginRole?: UserRole.EMPLOYEE;
 }

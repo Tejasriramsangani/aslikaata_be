@@ -20,6 +20,10 @@ export class ScrapProduct {
   @Prop({ type: String, default: null })
   imageUrl?: string | null;
 
+  /** Optional per-product emoji; apps fall back to the category emoji when empty. */
+  @Prop({ type: String, default: '' })
+  emoji?: string;
+
   @Prop({ default: true })
   isActive: boolean;
 }

@@ -19,6 +19,7 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles, UserRole } from '../../common/decorators/roles.decorator.js';
+import { StaffAccess, StaffRole } from '../../common/decorators/staff-access.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
 
@@ -62,6 +63,7 @@ export class EmployeesController {
   // --- Admin KYC & Management Endpoints ---
 
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ read: [StaffRole.YARD_MANAGER, StaffRole.DISPATCHER, StaffRole.ACCOUNTANT] })
   @Get('admin/employees')
   async listAllEmployees(@Query('status') status?: string) {
     return this.employeesService.listAllEmployees(status);

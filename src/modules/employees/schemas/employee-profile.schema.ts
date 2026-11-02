@@ -48,6 +48,13 @@ export class EmployeeProfile {
 
   @Prop({ type: String, default: null })
   activeDeviceId?: string | null;
+
+  /** Home address given in the freelancer request (set when created from a picker request). */
+  @Prop({ type: Object, default: null })
+  address?: Record<string, any> | null;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'PickerRequest', default: null })
+  pickerRequestId?: string | null;
 }
 
 export const EmployeeProfileSchema = SchemaFactory.createForClass(EmployeeProfile);

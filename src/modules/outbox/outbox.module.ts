@@ -6,10 +6,12 @@ import { EmployeeProfile, EmployeeProfileSchema } from '../employees/schemas/emp
 import { OutboxService } from './outbox.service.js';
 import { OutboxController } from './outbox.controller.js';
 import { RealtimeModule } from '../realtime/realtime.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 @Module({
   imports: [
     RealtimeModule,
+    NotificationsModule,
     MongooseModule.forFeature([
       { name: OutboxEvent.name, schema: OutboxEventSchema },
       { name: Pickup.name, schema: PickupSchema },

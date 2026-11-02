@@ -12,7 +12,9 @@ import {
 import { CatalogService } from './catalog.service.js';
 import {
   CreateCategoryDto,
+  UpdateCategoryDto,
   CreateProductDto,
+  UpdateProductDto,
   SetProductRateDto,
   CreateTimeSlotDto,
   CreateWeightRangeDto,
@@ -21,6 +23,7 @@ import {
 import { JwtAuthGuard, Public } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles, UserRole } from '../../common/decorators/roles.decorator.js';
+import { StaffAccess, StaffRole, ALL_STAFF } from '../../common/decorators/staff-access.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
 
@@ -63,6 +66,28 @@ export class CatalogController {
 
   // --- Admin Endpoints ---
 
+  /** Full catalog including hidden categories/products, with margin/benchmark detail. */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('admin/catalog')
+  async getAdminCatalog() {
+    return this.catalogService.getAdminCatalog();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Patch('admin/catalog/categories/:id')
+  async updateCategory(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
+    return this.catalogService.updateCategory(id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Patch('admin/catalog/products/:id')
+  async updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
+    return this.catalogService.updateProduct(id, dto);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Post('admin/catalog/categories')
@@ -103,6 +128,7 @@ export class CatalogController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ read: ALL_STAFF })
   @Get('admin/catalog/weight-ranges')
   async listAdminWeightRanges() {
     return this.catalogService.listWeightRanges(false);
@@ -110,6 +136,7 @@ export class CatalogController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ write: [StaffRole.DISPATCHER] })
   @Post('admin/catalog/weight-ranges')
   async createWeightRange(@Body() dto: CreateWeightRangeDto) {
     return this.catalogService.createWeightRange(dto);
@@ -117,6 +144,7 @@ export class CatalogController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ write: [StaffRole.DISPATCHER] })
   @Patch('admin/catalog/weight-ranges/:id')
   async updateWeightRange(@Param('id') id: string, @Body() dto: UpdateWeightRangeDto) {
     return this.catalogService.updateWeightRange(id, dto);
@@ -124,6 +152,7 @@ export class CatalogController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ write: [StaffRole.DISPATCHER] })
   @Delete('admin/catalog/weight-ranges/:id')
   async deleteWeightRange(@Param('id') id: string) {
     return this.catalogService.deleteWeightRange(id);

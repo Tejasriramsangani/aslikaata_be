@@ -6,6 +6,8 @@ export interface CurrentUserPayload {
   email?: string;
   roles: string[];
   sessionId?: string;
+  /** Admin-panel staff role (SUPER_ADMIN, YARD_MANAGER, ...). Only set for ADMIN users. */
+  staffRole?: string;
 }
 
 export const CurrentUser = createParamDecorator(

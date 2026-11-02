@@ -14,6 +14,7 @@ import {
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../../common/guards/roles.guard.js';
 import { Roles, UserRole } from '../../../common/decorators/roles.decorator.js';
+import { StaffAccess, StaffRole, ALL_STAFF } from '../../../common/decorators/staff-access.decorator.js';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { DivisionService } from '../services/division.service.js';
 import { VehicleService } from '../services/vehicle.service.js';
@@ -31,6 +32,7 @@ import { PickupStatus } from '../../pickups/schemas/pickup-status.enum.js';
 @Controller(['admin', 'api/v1/admin'])
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
+@StaffAccess({ read: ALL_STAFF, write: [StaffRole.DISPATCHER] })
 export class AdminRoutingController {
   constructor(
     private readonly divisionService: DivisionService,
@@ -229,8 +231,9 @@ export class AdminRoutingController {
           { unassigned: true },
           { needsAdminReview: true },
           { 'assignment.employeeProfileId': { $exists: false } },
+          // `null` also matches a missing field. Do not query '' here: the field is an
+          // ObjectId, so Mongoose throws a CastError and the whole queue request fails.
           { 'assignment.employeeProfileId': null },
-          { 'assignment.employeeProfileId': '' },
         ],
       })
       .populate('categories')

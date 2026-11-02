@@ -1,7 +1,12 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { AdminCredential, AdminCredentialDocument } from '../schemas/admin-credential.schema.js';
+import { isStaffRole } from '../../../common/decorators/staff-access.decorator.js';
+import { UserRole } from '../../../common/decorators/roles.decorator.js';
 
 export interface JwtPayload {
   sub: string;
@@ -9,11 +14,16 @@ export interface JwtPayload {
   email?: string;
   roles: string[];
   sessionId?: string;
+  staffRole?: string;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    @InjectModel(AdminCredential.name)
+    private readonly adminModel: Model<AdminCredentialDocument>,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -28,12 +38,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token payload');
     }
+
+    // The staff role (Super Admin / Yard Manager / ...) is read from the database on every
+    // request, not trusted from the token, so changing or removing a staff member takes
+    // effect immediately instead of when their token expires.
+    let staffRole: string | undefined;
+    if (Array.isArray(payload.roles) && payload.roles.includes(UserRole.ADMIN)) {
+      const cred = await this.adminModel.findOne({ userId: payload.sub }).select('role').lean();
+      if (cred && isStaffRole(cred.role)) staffRole = cred.role;
+    }
+
     return {
       userId: payload.sub,
       mobile: payload.mobile,
       email: payload.email,
       roles: payload.roles,
       sessionId: payload.sessionId,
+      staffRole,
     };
   }
 }

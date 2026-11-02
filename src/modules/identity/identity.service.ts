@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  NotFoundException,
   UnauthorizedException,
   ForbiddenException,
   Inject,
@@ -25,6 +26,7 @@ import { SMS_SERVICE } from './sms/sms.interface.js';
 import type { ISmsService } from './sms/sms.interface.js';
 import { CryptoUtil } from '../../common/utils/crypto.util.js';
 import { UserRole } from '../../common/decorators/roles.decorator.js';
+import { isStaffRole } from '../../common/decorators/staff-access.decorator.js';
 
 @Injectable()
 export class IdentityService implements OnModuleInit {
@@ -42,68 +44,10 @@ export class IdentityService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      const defaultAdmins = [
-        {
-          name: 'Ramesh Varma',
-          email: 'admin@aslikaata.com',
-          mobile: '9848022334',
-          password: 'Admin@123456',
-          role: 'SUPER_ADMIN',
-          assignedDivision: 'All Andhra Divisions',
-        },
-        {
-          name: 'K. Venkat Rao',
-          email: 'yard.manager@aslikaata.com',
-          mobile: '9848022335',
-          password: 'Yard@123456',
-          role: 'YARD_MANAGER',
-          assignedDivision: 'Vijayawada Central Yard',
-        },
-        {
-          name: 'Suresh Reddy',
-          email: 'dispatcher@aslikaata.com',
-          mobile: '9848022336',
-          password: 'Dispatch@123456',
-          role: 'DISPATCHER',
-          assignedDivision: 'Guntur Autonagar Fleet Hub',
-        },
-        {
-          name: 'P. Anitha',
-          email: 'accounts@aslikaata.com',
-          mobile: '9848022337',
-          password: 'Accounts@123456',
-          role: 'ACCOUNTANT',
-          assignedDivision: 'All Andhra Divisions',
-        },
-      ];
-
-      for (const adm of defaultAdmins) {
-        const existingCred = await this.adminModel.findOne({ email: adm.email.toLowerCase() });
-        if (!existingCred) {
-          let user = await this.userModel.findOne({ mobile: adm.mobile });
-          if (!user) {
-            user = await this.userModel.create({
-              mobile: adm.mobile,
-              roles: [UserRole.ADMIN, UserRole.CUSTOMER],
-              status: UserStatus.ACTIVE,
-            });
-          } else if (!user.roles.includes(UserRole.ADMIN)) {
-            user.roles.push(UserRole.ADMIN);
-            await user.save();
-          }
-
-          const passwordHash = await bcrypt.hash(adm.password, 10);
-          await this.adminModel.create({
-            userId: user._id.toString(),
-            email: adm.email.toLowerCase(),
-            passwordHash,
-            name: adm.name,
-            role: adm.role,
-            assignedDivision: adm.assignedDivision,
-          });
-          this.logger.log(`Seeded default admin credential: ${adm.email} (${adm.role})`);
-        }
-      }
+      // No built-in admin passwords. Staff accounts live in the database and are created with
+      // `npm run seed:admins` (or from the Users screen). For a brand-new, empty environment
+      // only, a first Super Admin can be bootstrapped from ADMIN_BOOTSTRAP_* env vars.
+      await this.bootstrapFirstAdminFromEnv();
 
       // Seed Test & Employee accounts
       for (const testUser of [
@@ -139,10 +83,69 @@ export class IdentityService implements OnModuleInit {
   }
 
   /**
+   * Creates the very first Super Admin from ADMIN_BOOTSTRAP_EMAIL / _PASSWORD (/_NAME, /_MOBILE)
+   * but only while no admin credential exists at all. Does nothing otherwise.
+   */
+  private async bootstrapFirstAdminFromEnv(): Promise<void> {
+    const email = this.configService.get<string>('ADMIN_BOOTSTRAP_EMAIL')?.trim();
+    const password = this.configService.get<string>('ADMIN_BOOTSTRAP_PASSWORD');
+    if (!email || !password) return;
+    if ((await this.adminModel.estimatedDocumentCount()) > 0) return;
+    if (password.length < 8) {
+      this.logger.warn('ADMIN_BOOTSTRAP_PASSWORD must be at least 8 characters; skipped.');
+      return;
+    }
+    await this.createAdminUser({
+      name: this.configService.get<string>('ADMIN_BOOTSTRAP_NAME') || 'Super Admin',
+      email,
+      mobile: this.configService.get<string>('ADMIN_BOOTSTRAP_MOBILE') || '9000000000',
+      role: 'SUPER_ADMIN',
+      password,
+    });
+    this.logger.log(`Bootstrapped first Super Admin: ${email.toLowerCase()}`);
+  }
+
+  /**
    * Dispatches OTP challenge with rate-limiting and cooldown enforcement.
    */
-  async sendOtp(dto: SendOtpDto): Promise<{ message: string; cooldownSeconds: number }> {
+  /**
+   * True only for local development with SMS_PROVIDER=mock (the default) outside production.
+   * In that mode no real SMS is sent, so the API hands the generated OTP back to the app.
+   */
+  private isMockOtpMode(): boolean {
+    return (
+      this.configService.get<string>('SMS_PROVIDER', 'mock') === 'mock' &&
+      process.env.NODE_ENV !== 'production'
+    );
+  }
+
+  /** Throws unless the mobile belongs to an active user holding the EMPLOYEE role. */
+  private async assertEmployeeAccount(mobile: string) {
+    const user = await this.userModel.findOne({ mobile: { $in: [mobile, `+91${mobile}`] } });
+    if (!user || !user.roles.includes(UserRole.EMPLOYEE)) {
+      throw new NotFoundException({
+        message: "You don't have an account on this app yet. Raise a request to become a freelance picker.",
+        details: { code: 'EMPLOYEE_ACCOUNT_NOT_FOUND' },
+      });
+    }
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException({
+        message: 'Your account has been suspended. Please contact support.',
+        details: { code: 'ACCOUNT_SUSPENDED' },
+      });
+    }
+  }
+
+  async sendOtp(
+    dto: SendOtpDto,
+  ): Promise<{ message: string; cooldownSeconds: number; devOtp?: string }> {
     const now = new Date();
+
+    // Employee app: do not send an OTP to a number that has no field account. The app then
+    // offers "become a freelancer" instead of letting anyone sign themselves up.
+    if (dto.loginRole === UserRole.EMPLOYEE) {
+      await this.assertEmployeeAccount(dto.mobile);
+    }
 
     // Check existing active challenge to enforce cooldown
     const existing = await this.otpModel
@@ -183,6 +186,8 @@ export class IdentityService implements OnModuleInit {
     return {
       message: 'OTP sent successfully',
       cooldownSeconds: 60,
+      // Never present with a real SMS provider or in production.
+      ...(this.isMockOtpMode() ? { devOtp: rawOtp } : {}),
     };
   }
 
@@ -196,12 +201,9 @@ export class IdentityService implements OnModuleInit {
   }> {
     const now = new Date();
 
-    const isMasterTestOtp =
-      dto.code === '123456' &&
-      (dto.mobile === '9848011111' ||
-        dto.mobile === '9848022222' ||
-        dto.mobile === '9999999999' ||
-        process.env.NODE_ENV !== 'production');
+    // Dev-only shortcut for the mock SMS provider. It used to also accept 123456 for three
+    // fixed numbers in production; it is now strictly limited to mock mode outside production.
+    const isMasterTestOtp = dto.code === '123456' && this.isMockOtpMode();
 
     const challenge = await this.otpModel
       .findOne({
@@ -233,7 +235,15 @@ export class IdentityService implements OnModuleInit {
       await challenge.save();
     }
 
-    // Find or create user
+    // Self-service OTP sign-in may only ever grant customer / employee access.
+    // ADMIN staff are created through admin credentials, never by a client-supplied role.
+    if (dto.requestedRole === UserRole.ADMIN) {
+      throw new ForbiddenException('The admin role cannot be requested through OTP sign-in');
+    }
+    // Employee accounts are created by an admin (approved picker request), never by signing in.
+    if (dto.requestedRole === UserRole.EMPLOYEE) {
+      await this.assertEmployeeAccount(dto.mobile);
+    }
     const roleToAssign = dto.requestedRole || UserRole.CUSTOMER;
     let user = await this.userModel.findOne({
       mobile: { $in: [dto.mobile, `+91${dto.mobile}`] },
@@ -405,6 +415,15 @@ export class IdentityService implements OnModuleInit {
     assignedDivision?: string;
   }): Promise<any> {
     const email = dto.email.toLowerCase().trim();
+    if (!dto.password || dto.password.length < 8) {
+      throw new BadRequestException('Password is required and must be at least 8 characters');
+    }
+    // No silent default to SUPER_ADMIN: the role must be an explicit, valid staff role.
+    if (!isStaffRole(dto.role)) {
+      throw new BadRequestException(
+        'Role must be one of SUPER_ADMIN, YARD_MANAGER, DISPATCHER or ACCOUNTANT',
+      );
+    }
     const existing = await this.adminModel.findOne({ email });
     if (existing) {
       throw new BadRequestException('A user with this email address already exists');
@@ -422,15 +441,14 @@ export class IdentityService implements OnModuleInit {
       await user.save();
     }
 
-    const rawPassword = dto.password || 'Admin@123456';
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const passwordHash = await bcrypt.hash(dto.password as string, 10);
 
     const cred = await this.adminModel.create({
       userId: user._id.toString(),
       email,
       passwordHash,
       name: dto.name.trim(),
-      role: dto.role || 'SUPER_ADMIN',
+      role: dto.role,
       assignedDivision: dto.assignedDivision || 'All Andhra Divisions',
     });
 
@@ -485,11 +503,19 @@ export class IdentityService implements OnModuleInit {
       expiresAt,
     });
 
+    // Staff role claim: used by the websocket gateway (REST re-reads it from the database).
+    let staffRole: string | undefined;
+    if (user.roles.includes(UserRole.ADMIN)) {
+      const cred = await this.adminModel.findOne({ userId: user._id.toString() }).select('role').lean();
+      if (cred && isStaffRole(cred.role)) staffRole = cred.role;
+    }
+
     const payload = {
       sub: user._id.toString(),
       mobile: user.mobile,
       roles: user.roles,
       sessionId: session._id.toString(),
+      ...(staffRole ? { staffRole } : {}),
     };
 
     const accessToken = this.jwtService.sign(payload, {

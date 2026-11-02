@@ -3,6 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AppSetting, AppSettingDocument } from '../schemas/app-setting.schema.js';
 
+/** 0 => order classification marks every order BULK, which uses the customer date + slot flow. */
+export const DEFAULT_BULK_LIMIT_KG = 0;
+
 @Injectable()
 export class AppSettingsService {
   private readonly logger = new Logger(AppSettingsService.name);
@@ -29,8 +32,9 @@ export class AppSettingsService {
   }
 
   async getBulkLimitKg(): Promise<number> {
-    // Default 50 kg aligns with the seeded "50+ kg" bulk range
-    return this.getSetting<number>('bulkLimitKg', 50);
+    // 0 = every order is slot-booked: the customer picks a date + time slot and admin assigns a picker.
+    // (Route-day / weekly scheduling is not in use yet.) Raise it to bring weekly routing back.
+    return this.getSetting<number>('bulkLimitKg', DEFAULT_BULK_LIMIT_KG);
   }
 
   async getOrderRules(): Promise<{
@@ -41,7 +45,7 @@ export class AppSettingsService {
   }> {
     const [bulkLimitKg, routeFinalizeHoursBefore, autoAssignRetryMinutes, maxPickupsPerEmployeeSlot] =
       await Promise.all([
-        this.getSetting<number>('bulkLimitKg', 50),
+        this.getSetting<number>('bulkLimitKg', DEFAULT_BULK_LIMIT_KG),
         this.getSetting<number>('routeFinalizeHoursBefore', 18),
         this.getSetting<number>('autoAssignRetryMinutes', 5),
         this.getSetting<number>('maxPickupsPerEmployeeSlot', 4),

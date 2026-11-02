@@ -14,6 +14,10 @@ export class ScrapCategory {
   @Prop({ type: String, default: null })
   iconUrl?: string | null;
 
+  /** Emoji shown in customer & employee apps. Empty = apps fall back to a generic icon. */
+  @Prop({ type: String, default: '' })
+  emoji?: string;
+
   @Prop({ default: 0 })
   displayOrder: number;
 

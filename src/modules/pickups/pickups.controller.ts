@@ -27,6 +27,7 @@ import { PickupStatus } from './schemas/pickup-status.enum.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles, UserRole } from '../../common/decorators/roles.decorator.js';
+import { StaffAccess, StaffRole, ALL_STAFF } from '../../common/decorators/staff-access.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
 
@@ -194,6 +195,7 @@ export class PickupsController {
   // --- Admin Endpoints ---
 
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ read: ALL_STAFF })
   @Get('admin/pickups')
   async listAdminPickups(
     @Query('status') status?: PickupStatus,
@@ -203,6 +205,7 @@ export class PickupsController {
   }
 
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ write: [StaffRole.DISPATCHER] })
   @Post('admin/pickups/:id/assign')
   async assignPickup(
     @CurrentUser() admin: CurrentUserPayload,
@@ -213,6 +216,7 @@ export class PickupsController {
   }
 
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ write: [StaffRole.DISPATCHER] })
   @Patch('admin/pickups/:id/reschedule')
   async adminReschedulePickup(
     @CurrentUser() admin: CurrentUserPayload,
@@ -223,6 +227,7 @@ export class PickupsController {
   }
 
   @Roles(UserRole.ADMIN)
+  @StaffAccess({ write: [StaffRole.DISPATCHER] })
   @Post('admin/pickups/:id/cancel')
   async adminCancelPickup(
     @CurrentUser() admin: CurrentUserPayload,

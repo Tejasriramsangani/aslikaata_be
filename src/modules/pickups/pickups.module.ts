@@ -8,6 +8,8 @@ import { TimeSlot, TimeSlotSchema } from '../catalog/schemas/time-slot.schema.js
 import { WeightRange, WeightRangeSchema } from '../catalog/schemas/weight-range.schema.js';
 import { EmployeeProfile, EmployeeProfileSchema } from '../employees/schemas/employee-profile.schema.js';
 import { EmployeeDocument, EmployeeDocumentSchema } from '../employees/schemas/employee-document.schema.js';
+import { CustomerProfile, CustomerProfileSchema } from '../customers/schemas/customer-profile.schema.js';
+import { User, UserSchema } from '../identity/schemas/user.schema.js';
 import { CatalogModule } from '../catalog/catalog.module.js';
 import { OutboxModule } from '../outbox/outbox.module.js';
 import { AnalyticsModule } from '../analytics/analytics.module.js';
@@ -33,6 +35,8 @@ import { PickupsController } from './pickups.controller.js';
       { name: WeightRange.name, schema: WeightRangeSchema },
       { name: EmployeeProfile.name, schema: EmployeeProfileSchema },
       { name: EmployeeDocument.name, schema: EmployeeDocumentSchema },
+      { name: CustomerProfile.name, schema: CustomerProfileSchema },
+      { name: User.name, schema: UserSchema },
     ]),
   ],
   controllers: [PickupsController],

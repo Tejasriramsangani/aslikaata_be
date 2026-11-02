@@ -13,4 +13,13 @@ export class MockSmsService implements ISmsService {
     }
     return true;
   }
+
+  async sendText(mobile: string, message: string): Promise<boolean> {
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log(`[DEV ONLY] Text SMS to ${mobile}: ${message}`);
+    } else {
+      this.logger.log(`Text SMS dispatched to ${mobile.slice(0, 4)}XXXXXX`);
+    }
+    return true;
+  }
 }

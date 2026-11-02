@@ -101,32 +101,11 @@ export class RealtimeGateway
         client.handshake.auth?.token || client.handshake.headers?.authorization;
 
       if (!authHeader) {
-        // Dev fallback: join admin dashboard so admin panel connects cleanly
-        client.data.user = {
-          userId: 'usr_dev_guest',
-          roles: [UserRole.ADMIN],
-        };
-        client.join('admin:queue');
-        client.join('admin:dashboard');
-        this.logger.log(`Socket connected (dev/admin fallback): ${client.id}`);
-        return;
+        // No anonymous sockets: every connection must present a valid access token.
+        throw new Error('Missing access token');
       }
 
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-
-      if (token.startsWith('demo_jwt_')) {
-        const roleStr = token.replace('demo_jwt_', '').toUpperCase();
-        client.data.user = {
-          userId: `usr_demo_${roleStr.toLowerCase()}`,
-          email: `${roleStr.toLowerCase()}@aslikaata.com`,
-          roles: [UserRole.ADMIN, roleStr],
-        };
-        client.join(`user:${client.data.user.userId}`);
-        client.join('admin:queue');
-        client.join('admin:dashboard');
-        this.logger.log(`Socket connected & authenticated with demo token: ${client.id}`);
-        return;
-      }
 
       const secret = this.configService.get<string>(
         'JWT_ACCESS_SECRET',
@@ -153,8 +132,9 @@ export class RealtimeGateway
         client.join(`employee:${userId}`);
       }
 
-      // If admin, join admin queue and dashboard rooms: admin:queue, admin:dashboard
-      if (roles.includes(UserRole.ADMIN)) {
+      // If admin staff (a real staff role, not just the ADMIN flag), join admin queue and
+      // dashboard rooms: admin:queue, admin:dashboard
+      if (roles.includes(UserRole.ADMIN) && decoded.staffRole) {
         client.join('admin:queue');
         client.join('admin:dashboard');
       }

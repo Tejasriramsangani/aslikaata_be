@@ -62,4 +62,26 @@ export class Fast2SmsService implements ISmsService {
       return false;
     }
   }
+
+  async sendText(mobile: string, message: string): Promise<boolean> {
+    const cleanMobile = mobile.replace(/D/g, '').slice(-10);
+    if (!this.apiKey) {
+      this.logger.warn(`FAST2SMS_API_KEY not configured. Text SMS to ${cleanMobile} not sent.`);
+      return false;
+    }
+    try {
+      const response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: { authorization: this.apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ route: 'q', message, numbers: cleanMobile }),
+      });
+      const data = await response.json();
+      if (data && data.return === true) return true;
+      this.logger.error(`[Fast2SMS] Text SMS failed: ${JSON.stringify(data)}`);
+      return false;
+    } catch (err: any) {
+      this.logger.error(`[Fast2SMS] Text SMS network error: ${err.message}`);
+      return false;
+    }
+  }
 }

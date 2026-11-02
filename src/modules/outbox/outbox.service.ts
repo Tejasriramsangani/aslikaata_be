@@ -4,6 +4,12 @@ import { Interval } from '@nestjs/schedule';
 import { Model, type ClientSession } from 'mongoose';
 import { OutboxEvent, OutboxEventDocument, OutboxStatus } from '../../common/outbox/outbox-event.schema.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { Pickup, PickupDocument } from '../pickups/schemas/pickup.schema.js';
+import { PickupStatus } from '../pickups/schemas/pickup-status.enum.js';
+import { EmployeeProfile, EmployeeProfileDocument } from '../employees/schemas/employee-profile.schema.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { NotificationType } from '../notifications/schemas/notification.schema.js';
+import { planNotifications } from '../notifications/notification-templates.js';
 
 @Injectable()
 export class OutboxService {
@@ -14,6 +20,11 @@ export class OutboxService {
     @InjectModel(OutboxEvent.name)
     private readonly outboxModel: Model<OutboxEventDocument>,
     private readonly realtimeGateway: RealtimeGateway,
+    @InjectModel(Pickup.name)
+    private readonly pickupModel: Model<PickupDocument>,
+    @InjectModel(EmployeeProfile.name)
+    private readonly employeeProfileModel: Model<EmployeeProfileDocument>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -122,6 +133,8 @@ export class OutboxService {
           this.realtimeGateway.emitToPickup(payload.pickupId, 'pickup.status_changed', payload);
         }
         this.realtimeGateway.emitToAdminDashboard('pickup.status_changed', payload);
+        await this.notifyEmployeeOfPickupChange(payload);
+        await this.sendPlannedNotifications(eventType, payload);
         break;
 
       case 'summary.ready':
@@ -131,6 +144,7 @@ export class OutboxService {
         if (payload.pickupId) {
           this.realtimeGateway.emitToPickup(payload.pickupId, 'summary.ready', payload);
         }
+        await this.sendPlannedNotifications(eventType, payload);
         break;
 
       case 'settlement.completed':
@@ -153,6 +167,7 @@ export class OutboxService {
           this.realtimeGateway.emitToEmployee(payload.employeeUserId, eventType, payload);
         }
         this.realtimeGateway.emitToAdminDashboard(eventType, payload);
+        await this.sendPlannedNotifications(eventType, payload);
         break;
 
       default:
@@ -160,6 +175,88 @@ export class OutboxService {
         if (payload.pickupId) {
           this.realtimeGateway.emitToPickup(payload.pickupId, eventType, payload);
         }
+    }
+  }
+
+  /**
+   * In-app notifications for the employee a pickup belongs to. Hooked on the single
+   * 'pickup.status_changed' event so every path is covered: admin assign, bulk auto-assign
+   * and weekly route runs. Failures are logged and never fail the outbox event.
+   */
+  private async notifyEmployeeOfPickupChange(payload: Record<string, any>) {
+    try {
+      const isAssigned = payload.toStatus === PickupStatus.ASSIGNED;
+      const isRescheduled = payload.action === 'RESCHEDULED';
+      const isCancelled = payload.toStatus === PickupStatus.CANCELLED;
+      if (!payload.pickupId || (!isAssigned && !isRescheduled && !isCancelled)) return;
+
+      const pickup = await this.pickupModel.findById(payload.pickupId);
+      const profileId = pickup?.assignment?.employeeProfileId;
+      if (!pickup || !profileId) return;
+      // A reschedule only matters to the employee while the pickup is still assigned to them.
+      if (isRescheduled && pickup.status !== PickupStatus.ASSIGNED) return;
+
+      const profile = await this.employeeProfileModel.findById(profileId);
+      if (!profile) return;
+
+      const slot = pickup.timeSlotSnapshot?.displayLabel;
+      const when = [pickup.scheduledDate, slot].filter(Boolean).join(', ');
+      const where = [pickup.addressSnapshot?.line1, pickup.addressSnapshot?.city].filter(Boolean).join(', ');
+      const data = { pickupId: pickup._id.toString(), pickupCode: pickup.pickupCode };
+
+      if (isCancelled) {
+        await this.notificationsService.notify({
+          userId: profile.userId.toString(),
+          type: NotificationType.PICKUP_CANCELLED,
+          title: 'Pickup cancelled',
+          body: `${pickup.pickupCode} (${when}) was cancelled. It has been removed from your route.`,
+          data,
+        });
+      } else if (isRescheduled) {
+        await this.notificationsService.notify({
+          userId: profile.userId.toString(),
+          type: NotificationType.PICKUP_RESCHEDULED,
+          title: 'Pickup rescheduled',
+          body: `${pickup.pickupCode} moved to ${when}.${where ? ` Address: ${where}.` : ''}`,
+          data,
+        });
+      } else {
+        await this.notificationsService.notify({
+          userId: profile.userId.toString(),
+          type: NotificationType.PICKUP_ASSIGNED,
+          title: 'New pickup assigned',
+          body: `${pickup.pickupCode} • ${when}${where ? ` • ${where}` : ''}`,
+          data,
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not notify employee for pickup ${payload.pickupId}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Customer notifications (picker assigned / on the way / arrived, postponed, summary ready, ...) and
+   * employee account notifications, as in-app inbox entries plus FCM push. Message wording lives in
+   * notification-templates.ts. Hooked on 'pickup.status_changed' (not 'pickup.assigned') so every
+   * assignment path is covered once. Failures are logged and never fail the outbox event.
+   */
+  private async sendPlannedNotifications(eventType: string, payload: Record<string, any>) {
+    try {
+      let employeeName: string | undefined;
+      if (
+        eventType === 'pickup.status_changed' &&
+        payload.toStatus === PickupStatus.ASSIGNED &&
+        payload.customerId &&
+        payload.pickupId
+      ) {
+        const pickup = await this.pickupModel.findById(payload.pickupId);
+        employeeName = pickup?.assignment?.employeeName;
+      }
+      for (const n of planNotifications(eventType, payload, { employeeName })) {
+        await this.notificationsService.notify(n);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not send notifications for ${eventType}: ${err.message}`);
     }
   }
 

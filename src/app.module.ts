@@ -11,6 +11,9 @@ import { IdentityModule } from './modules/identity/identity.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { EmployeesModule } from './modules/employees/employees.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
+import { MarketRatesModule } from './modules/market-rates/market-rates.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { PickerRequestsModule } from './modules/picker-requests/picker-requests.module.js';
 import { PickupsModule } from './modules/pickups/pickups.module.js';
 import { SettlementsModule } from './modules/settlements/settlements.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
@@ -34,6 +37,9 @@ import { AppController } from './app.controller.js';
     CustomersModule,
     EmployeesModule,
     CatalogModule,
+    MarketRatesModule,
+    NotificationsModule,
+    PickerRequestsModule,
     PickupsModule,
     SettlementsModule,
     RealtimeModule,

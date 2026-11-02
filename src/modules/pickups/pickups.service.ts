@@ -29,6 +29,8 @@ import {
 } from './dto/field-ops.dto.js';
 import { SequenceService } from '../../common/database/sequence.service.js';
 import { Address, AddressDocument } from '../customers/schemas/address.schema.js';
+import { CustomerProfile, CustomerProfileDocument } from '../customers/schemas/customer-profile.schema.js';
+import { User, UserDocument } from '../identity/schemas/user.schema.js';
 import { TimeSlot, TimeSlotDocument } from '../catalog/schemas/time-slot.schema.js';
 import { WeightRange, WeightRangeDocument } from '../catalog/schemas/weight-range.schema.js';
 import {
@@ -82,7 +84,45 @@ export class PickupsService {
     @Optional() private readonly bulkAutoAssignService?: BulkAutoAssignService,
     @Optional() private readonly routeRunsService?: RouteRunsService,
     @Optional() private readonly divisionService?: DivisionService,
+    @Optional()
+    @InjectModel(CustomerProfile.name)
+    private readonly customerProfileModel?: Model<CustomerProfileDocument>,
+    @Optional()
+    @InjectModel(User.name)
+    private readonly userModel?: Model<UserDocument>,
   ) {}
+
+  /** Fills assignment.employeePhone from the employee's account so the customer can call the picker. */
+  private async withEmployeePhone(pickup: PickupDocument): Promise<any> {
+    const plain: any = typeof (pickup as any).toObject === 'function' ? (pickup as any).toObject() : pickup;
+    const profileId = plain.assignment?.employeeProfileId;
+    if (!profileId || plain.assignment.employeePhone || !this.userModel) return plain;
+    const profile = await this.employeeProfileModel.findById(profileId).select('userId');
+    const user = profile ? await this.userModel.findById(profile.userId).select('mobile') : null;
+    return user?.mobile ? { ...plain, assignment: { ...plain.assignment, employeePhone: user.mobile } } : plain;
+  }
+
+  /**
+   * Adds the customer's name and mobile to pickups an employee is assigned to, so the picker can
+   * greet and call them. Only used on employee-facing reads of their own assigned pickups.
+   */
+  private async withCustomerContact(pickups: PickupDocument[]): Promise<any[]> {
+    const ids = [...new Set(pickups.map((p) => String(p.customerId)).filter(Boolean))];
+    const [profiles, users] =
+      ids.length && this.customerProfileModel && this.userModel
+        ? await Promise.all([
+            this.customerProfileModel.find({ userId: { $in: ids } }).select('userId fullName'),
+            this.userModel.find({ _id: { $in: ids } }).select('mobile'),
+          ])
+        : [[], []];
+    const nameById = new Map(profiles.map((p) => [String(p.userId), p.fullName]));
+    const phoneById = new Map(users.map((u) => [String(u._id), u.mobile]));
+    return pickups.map((p) => ({
+      ...(typeof (p as any).toObject === 'function' ? (p as any).toObject() : p),
+      customerName: nameById.get(String(p.customerId)) || null,
+      customerPhone: phoneById.get(String(p.customerId)) || null,
+    }));
+  }
 
   // --- Phase 3 Methods: Booking, Assignment & Transit ---
 
@@ -170,10 +210,14 @@ export class PickupsService {
     }
 
     // 4. Resolve Categories (sanitize to only valid ObjectIds)
-    let categoryIds = (dto.categoryIds || []).filter((id) => isValidObjectId(id));
+    const activeCats = await this.catalogService.listCategories(true);
+    const activeCatIdSet = new Set(activeCats.map((c) => c._id.toString()));
+    // Only categories the admin has enabled can be booked (hidden ones are dropped).
+    let categoryIds = (dto.categoryIds || []).filter(
+      (id) => isValidObjectId(id) && activeCatIdSet.has(String(id)),
+    );
     if (categoryIds.length === 0) {
-      const allActiveCats = await this.catalogService.listCategories(true);
-      categoryIds = allActiveCats.map((c) => c._id.toString());
+      categoryIds = Array.from(activeCatIdSet);
     }
 
     const pickupCode = await this.sequenceService.generatePickupCode();
@@ -949,7 +993,7 @@ export class PickupsService {
 
   // --- Query Methods with Object-Level Security ---
 
-  async getPickupById(pickupId: string, user: CurrentUserPayload): Promise<PickupDocument> {
+  async getPickupById(pickupId: string, user: CurrentUserPayload): Promise<any> {
     const query = isValidObjectId(pickupId)
       ? this.pickupModel.findById(pickupId)
       : this.pickupModel.findOne({ pickupCode: pickupId });
@@ -966,7 +1010,7 @@ export class PickupsService {
       if (pickup.customerId.toString() !== user.userId) {
         throw new ForbiddenException('Access denied: You do not own this pickup');
       }
-      return pickup;
+      return this.withEmployeePhone(pickup);
     }
 
     if (user.roles.includes(UserRole.EMPLOYEE)) {
@@ -974,7 +1018,7 @@ export class PickupsService {
       if (!employee || pickup.assignment?.employeeProfileId.toString() !== employee._id.toString()) {
         throw new ForbiddenException('Access denied: This pickup is not assigned to you');
       }
-      return pickup;
+      return (await this.withCustomerContact([pickup]))[0];
     }
 
     throw new ForbiddenException('Access denied');
@@ -987,13 +1031,14 @@ export class PickupsService {
     return typeof query?.populate === 'function' ? await query.populate('categories') : await query;
   }
 
-  async listEmployeePickups(employeeUserId: string, status?: PickupStatus): Promise<PickupDocument[]> {
+  async listEmployeePickups(employeeUserId: string, status?: PickupStatus): Promise<any[]> {
     const employee = await this.employeeProfileModel.findOne({ userId: employeeUserId });
     if (!employee) return [];
 
     const filter: Record<string, any> = { 'assignment.employeeProfileId': employee._id.toString() };
     if (status) filter.status = status;
-    return this.pickupModel.find(filter).sort({ scheduledDate: 1, createdAt: -1 });
+    const pickups = await this.pickupModel.find(filter).sort({ scheduledDate: 1, createdAt: -1 });
+    return this.withCustomerContact(pickups);
   }
 
   async listAdminPickups(status?: PickupStatus, date?: string): Promise<PickupDocument[]> {

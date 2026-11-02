@@ -56,7 +56,7 @@ describe('Phase 7.3: Security Audit & Hardening Verification', () => {
       });
 
       await expect(
-        pickupsService.getPickupById('pickup-100', {
+        pickupsService.getPickupById('64b0f0f0f0f0f0f0f0f0f100', {
           userId: 'customer-a-id',
           roles: [UserRole.CUSTOMER],
         }),
@@ -77,7 +77,7 @@ describe('Phase 7.3: Security Audit & Hardening Verification', () => {
       });
 
       await expect(
-        pickupsService.getPickupById('pickup-101', {
+        pickupsService.getPickupById('64b0f0f0f0f0f0f0f0f0f101', {
           userId: 'emp-user-11',
           roles: [UserRole.EMPLOYEE],
         }),
@@ -91,7 +91,7 @@ describe('Phase 7.3: Security Audit & Hardening Verification', () => {
       };
       mockPickupModel.findById.mockResolvedValue(mockPickup);
 
-      const result = await pickupsService.getPickupById('pickup-102', {
+      const result = await pickupsService.getPickupById('64b0f0f0f0f0f0f0f0f0f102', {
         userId: 'admin-1',
         roles: [UserRole.ADMIN],
       });

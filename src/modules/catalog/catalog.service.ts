@@ -6,7 +6,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose';
 
 import { ScrapCategory, ScrapCategoryDocument } from './schemas/scrap-category.schema.js';
 import { ScrapProduct, ScrapProductDocument } from './schemas/scrap-product.schema.js';
@@ -16,7 +16,9 @@ import { WeightRange, WeightRangeDocument } from './schemas/weight-range.schema.
 import { AppSetting, AppSettingDocument } from '../routing/schemas/app-setting.schema.js';
 import {
   CreateCategoryDto,
+  UpdateCategoryDto,
   CreateProductDto,
+  UpdateProductDto,
   SetProductRateDto,
   CreateTimeSlotDto,
   CreateWeightRangeDto,
@@ -24,14 +26,25 @@ import {
 } from './dto/catalog.dto.js';
 import { TransactionRunner } from '../../common/database/transaction-runner.js';
 
-const DEFAULT_BULK_LIMIT_KG = 50;
+// 0 = every order is slot-booked (customer picks date + slot, admin assigns a picker). Matches AppSettingsService.
+const DEFAULT_BULK_LIMIT_KG = 0;
+/** Weight ranges starting at this many kg are the "bulk" tier, hidden from customers unless showBulkRanges is on. */
+const BULK_RANGE_MIN_KG = 50;
 
-const DEFAULT_CATALOG_SEED: Array<{
-  category: { name: string; code: string; displayOrder: number };
+/**
+ * ScrapRate.createdById is a required ObjectId. Automated actors (boot seeding,
+ * scheduled market-rate sync) have no User document, so they use this fixed id.
+ * Passing a non-ObjectId string (e.g. 'system_bootstrap') made every seed rate
+ * insert throw a CastError and abort the whole default-catalog seed.
+ */
+export const SYSTEM_USER_ID = '000000000000000000000001';
+
+export const DEFAULT_CATALOG_SEED: Array<{
+  category: { name: string; code: string; displayOrder: number; emoji: string };
   products: Array<{ name: string; code: string; ratePaise: number }>;
 }> = [
   {
-    category: { name: 'Paper', code: 'PAPER', displayOrder: 1 },
+    category: { name: 'Paper', code: 'PAPER', displayOrder: 1, emoji: '📄' },
     products: [
       { name: 'Newspaper', code: 'NEWSPAPER', ratePaise: 1400 }, // Rs 14.00/kg
       { name: 'Cardboard / Carton', code: 'CARDBOARD', ratePaise: 900 }, // Rs 9.00/kg
@@ -40,7 +53,7 @@ const DEFAULT_CATALOG_SEED: Array<{
     ],
   },
   {
-    category: { name: 'Metal', code: 'METAL', displayOrder: 2 },
+    category: { name: 'Metal', code: 'METAL', displayOrder: 2, emoji: '⚙️' },
     products: [
       { name: 'Iron / Loha', code: 'IRON', ratePaise: 2800 }, // Rs 28.00/kg
       { name: 'Copper / Tamba', code: 'COPPER', ratePaise: 65000 }, // Rs 650.00/kg
@@ -50,7 +63,7 @@ const DEFAULT_CATALOG_SEED: Array<{
     ],
   },
   {
-    category: { name: 'Plastic', code: 'PLASTIC', displayOrder: 3 },
+    category: { name: 'Plastic', code: 'PLASTIC', displayOrder: 3, emoji: '🍾' },
     products: [
       { name: 'PET Bottles', code: 'PET_BOTTLE', ratePaise: 1500 }, // Rs 15.00/kg
       { name: 'Hard Plastic', code: 'HARD_PLASTIC', ratePaise: 1200 }, // Rs 12.00/kg
@@ -58,21 +71,21 @@ const DEFAULT_CATALOG_SEED: Array<{
     ],
   },
   {
-    category: { name: 'E-Waste', code: 'E_WASTE', displayOrder: 4 },
+    category: { name: 'E-Waste', code: 'E_WASTE', displayOrder: 4, emoji: '💻' },
     products: [
       { name: 'E-Waste / Electronics', code: 'ELECTRONICS', ratePaise: 3000 }, // Rs 30.00/kg
       { name: 'Lead Acid Batteries', code: 'BATTERY', ratePaise: 8000 }, // Rs 80.00/kg
     ],
   },
   {
-    category: { name: 'Rubber', code: 'RUBBER', displayOrder: 5 },
+    category: { name: 'Rubber', code: 'RUBBER', displayOrder: 5, emoji: '🛞' },
     products: [
       { name: 'Tyres & Tubes', code: 'TYRES', ratePaise: 500 }, // Rs 5.00/kg
       { name: 'General Rubber', code: 'GEN_RUBBER', ratePaise: 400 }, // Rs 4.00/kg
     ],
   },
   {
-    category: { name: 'Others', code: 'OTHERS', displayOrder: 6 },
+    category: { name: 'Others', code: 'OTHERS', displayOrder: 6, emoji: '📦' },
     products: [
       { name: 'Beer / Glass Bottles', code: 'GLASS_BOTTLES', ratePaise: 250 }, // Rs 2.50/kg
       { name: 'Mixed Scrap', code: 'MIXED_SCRAP', ratePaise: 300 }, // Rs 3.00/kg
@@ -173,9 +186,34 @@ export class CatalogService implements OnModuleInit {
       name: dto.name,
       code: dto.code.toUpperCase(),
       iconUrl: dto.iconUrl || null,
+      emoji: dto.emoji || '',
       displayOrder: dto.displayOrder || 0,
       isActive: true,
     });
+  }
+
+  async updateCategory(id: string, dto: UpdateCategoryDto): Promise<ScrapCategoryDocument> {
+    const category = await this.categoryModel.findById(id);
+    if (!category) throw new NotFoundException('Category not found');
+    if (dto.name !== undefined) category.name = dto.name;
+    if (dto.iconUrl !== undefined) category.iconUrl = dto.iconUrl || null;
+    if (dto.emoji !== undefined) category.emoji = dto.emoji;
+    if (dto.displayOrder !== undefined) category.displayOrder = dto.displayOrder;
+    if (dto.isActive !== undefined) category.isActive = dto.isActive;
+    await category.save();
+    return category;
+  }
+
+  async updateProduct(id: string, dto: UpdateProductDto): Promise<ScrapProductDocument> {
+    const product = await this.productModel.findById(id);
+    if (!product) throw new NotFoundException('Product not found');
+    if (dto.name !== undefined) product.name = dto.name;
+    if (dto.description !== undefined) product.description = dto.description;
+    if (dto.imageUrl !== undefined) product.imageUrl = dto.imageUrl || null;
+    if (dto.emoji !== undefined) product.emoji = dto.emoji;
+    if (dto.isActive !== undefined) product.isActive = dto.isActive;
+    await product.save();
+    return product;
   }
 
   async listCategories(activeOnly: boolean = true): Promise<ScrapCategoryDocument[]> {
@@ -326,6 +364,7 @@ export class CatalogService implements OnModuleInit {
             code: p.code,
             description: p.description,
             imageUrl: p.imageUrl,
+            emoji: p.emoji || cat.emoji || '',
             activeRate: rate
               ? {
                   id: rate._id.toString(),
@@ -337,14 +376,69 @@ export class CatalogService implements OnModuleInit {
           };
         });
 
+      const pricedRates = catProducts
+        .map((p) => p.activeRate?.ratePerKgPaise)
+        .filter((r): r is number => typeof r === 'number');
+      const minRate = pricedRates.length ? Math.min(...pricedRates) : null;
+
       return {
         id: cat._id.toString(),
         name: cat.name,
         code: cat.code,
         iconUrl: cat.iconUrl,
+        emoji: cat.emoji || '',
+        // Lowest customer rate (margin already applied) so apps can show "from ₹X/kg".
+        startingRatePerKgPaise: minRate,
+        startingRatePerKgRupees: minRate != null ? (minRate / 100).toFixed(2) : null,
         products: catProducts,
       };
     });
+  }
+
+  /**
+   * Admin view of the catalog: every category and product (including hidden
+   * ones) with the full active rate record (benchmark, margin, final rate).
+   */
+  async getAdminCatalog() {
+    const [categories, products, activeRates] = await Promise.all([
+      this.listCategories(false),
+      this.listProducts(undefined, false),
+      this.getActiveRates(),
+    ]);
+    const rateMap = new Map<string, ScrapRateDocument>();
+    for (const rate of activeRates) rateMap.set(rate.productId.toString(), rate);
+
+    return categories.map((cat) => ({
+      id: cat._id.toString(),
+      name: cat.name,
+      code: cat.code,
+      emoji: cat.emoji || '',
+      displayOrder: cat.displayOrder,
+      isActive: cat.isActive,
+      products: products
+        .filter((p) => p.categoryId.toString() === cat._id.toString())
+        .map((p) => {
+          const rate = rateMap.get(p._id.toString());
+          return {
+            id: p._id.toString(),
+            name: p.name,
+            code: p.code,
+            description: p.description,
+            emoji: p.emoji || '',
+            isActive: p.isActive,
+            activeRate: rate
+              ? {
+                  id: rate._id.toString(),
+                  ratePerKgPaise: rate.ratePerKg,
+                  marketBenchmarkRatePaise: rate.marketBenchmarkRate || 0,
+                  marginDeltaPaise: rate.marginDelta || 0,
+                  marginType: rate.marginType || 'FLAT',
+                  effectiveFrom: rate.effectiveFrom,
+                }
+              : null,
+          };
+        }),
+    }));
   }
 
   // --- Time Slots & Weight Ranges ---
@@ -422,7 +516,13 @@ export class CatalogService implements OnModuleInit {
     const setting = await this.appSettingModel.findOne({ key: 'bulkLimitKg' }).lean();
     const value = setting?.value;
     const n = typeof value === 'number' ? value : Number(value);
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_BULK_LIMIT_KG;
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_BULK_LIMIT_KG;
+  }
+
+  /** Bulk-tier ranges stay hidden from the customer app until an admin turns this on. */
+  private async getShowBulkRanges(): Promise<boolean> {
+    const setting = await this.appSettingModel.findOne({ key: 'showBulkRanges' }).lean();
+    return setting?.value === true;
   }
 
   /**
@@ -433,10 +533,12 @@ export class CatalogService implements OnModuleInit {
     bulkLimitKg: number;
     ranges: Array<Record<string, any>>;
   }> {
-    const [ranges, bulkLimitKg] = await Promise.all([
+    const [allRanges, bulkLimitKg, showBulk] = await Promise.all([
       this.listWeightRanges(true),
       this.getBulkLimitKg(),
+      this.getShowBulkRanges(),
     ]);
+    const ranges = showBulk ? allRanges : allRanges.filter((r) => (r.minGrams || 0) / 1000 < BULK_RANGE_MIN_KG);
 
     return {
       bulkLimitKg,
@@ -482,6 +584,10 @@ export class CatalogService implements OnModuleInit {
           isActive: true,
         });
         createdCategories += 1;
+      } else if (!category.emoji) {
+        // Backfill only when empty so admin-chosen emojis are never overwritten.
+        category.emoji = group.category.emoji;
+        await category.save();
       }
 
       for (const productSeed of group.products) {
@@ -506,7 +612,7 @@ export class CatalogService implements OnModuleInit {
             ratePerKg: productSeed.ratePaise,
             effectiveFrom: new Date(),
             effectiveTo: null,
-            createdById: systemUserId,
+            createdById: isValidObjectId(systemUserId) ? systemUserId : SYSTEM_USER_ID,
           });
           createdRates += 1;
         }
