@@ -22,6 +22,7 @@ function build(smsProvider: string | undefined) {
     sms as any,
     {} as any, // jwt
     config as any,
+    {} as any, // employee profile
   );
   return { service, sms, created };
 }
@@ -71,21 +72,36 @@ describe('OTP mock mode (SMS_PROVIDER=mock)', () => {
 });
 
 describe('Employee login: no account -> no OTP', () => {
-  function buildWithUser(user: any) {
+  /** users: matching user records; profiles: employee profiles ({ userId, status }). */
+  function build(users: any[], profiles: any[] = []) {
     const otpModel: any = {
       findOne: vi.fn(() => ({ sort: vi.fn(async () => null) })),
       create: vi.fn(async (d: any) => d),
     };
-    const userModel: any = { findOne: vi.fn(async () => user) };
+    const userModel: any = {
+      find: vi.fn(async () => users),
+      findOne: vi.fn(async () => users[0] ?? null),
+    };
+    const profileModel: any = {
+      find: vi.fn((q: any) => {
+        const ids = q.userId.$in.map(String);
+        const rows = profiles.filter((p) => ids.includes(String(p.userId)));
+        return { select: () => ({ lean: async () => rows }) };
+      }),
+    };
     const sms = { sendOtp: vi.fn(async () => true) };
     const config = { get: (_k: string, f?: string) => f };
-    const service = new IdentityService(userModel, {} as any, otpModel, {} as any, sms as any, {} as any, config as any);
+    const service = new IdentityService(
+      userModel, {} as any, otpModel, {} as any, sms as any, {} as any, config as any, profileModel,
+    );
     return { service, otpModel, sms };
   }
+  const employee = (id: string, extra: any = {}) => ({ _id: id, roles: ['EMPLOYEE'], status: 'ACTIVE', ...extra });
+  const approved = (id: string) => ({ userId: id, status: 'APPROVED' });
   const dto: any = { mobile: '9123456780', purpose: 'LOGIN', loginRole: 'EMPLOYEE' };
 
   it('refuses and sends nothing for a number with no employee account', async () => {
-    const { service, otpModel, sms } = buildWithUser(null);
+    const { service, otpModel, sms } = build([]);
     const err: any = await service.sendOtp(dto).catch((e) => e);
     expect(err.getStatus()).toBe(404);
     expect(err.getResponse().details.code).toBe('EMPLOYEE_ACCOUNT_NOT_FOUND');
@@ -94,30 +110,59 @@ describe('Employee login: no account -> no OTP', () => {
   });
 
   it('also refuses a customer-only account', async () => {
-    const { service } = buildWithUser({ roles: ['CUSTOMER'], status: 'ACTIVE' });
+    const { service } = build([{ _id: 'u1', roles: ['CUSTOMER'], status: 'ACTIVE' }]);
     await expect(service.sendOtp(dto)).rejects.toMatchObject({ status: 404 });
   });
 
-  it('refuses a suspended employee', async () => {
-    const { service } = buildWithUser({ roles: ['EMPLOYEE'], status: 'SUSPENDED' });
+  it('refuses an EMPLOYEE role with no employee profile (never approved)', async () => {
+    const { service, sms } = build([employee('u1', { roles: ['CUSTOMER', 'EMPLOYEE'] })]);
+    await expect(service.sendOtp(dto)).rejects.toMatchObject({ status: 404 });
+    expect(sms.sendOtp).not.toHaveBeenCalled();
+  });
+
+  it('refuses a rejected employee profile', async () => {
+    const { service } = build([employee('u1')], [{ userId: 'u1', status: 'REJECTED' }]);
+    await expect(service.sendOtp(dto)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses a suspended user', async () => {
+    const { service } = build([employee('u1', { status: 'SUSPENDED' })], [approved('u1')]);
     await expect(service.sendOtp(dto)).rejects.toMatchObject({ status: 403 });
   });
 
-  it('sends the OTP for a real employee', async () => {
-    const { service, sms } = buildWithUser({ roles: ['EMPLOYEE'], status: 'ACTIVE' });
+  it('refuses a suspended employee profile', async () => {
+    const { service } = build([employee('u1')], [{ userId: 'u1', status: 'SUSPENDED' }]);
+    await expect(service.sendOtp(dto)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('sends the OTP for an approved employee', async () => {
+    const { service, sms } = build([employee('u1')], [approved('u1')]);
     const res = await service.sendOtp(dto);
     expect(res.message).toBe('OTP sent successfully');
     expect(sms.sendOtp).toHaveBeenCalled();
   });
 
+  it('finds the approved record when the number is stored twice (98... and +9198...)', async () => {
+    const { service, sms } = build([employee('dup'), employee('real')], [approved('real')]);
+    await service.sendOtp(dto);
+    expect(sms.sendOtp).toHaveBeenCalled();
+  });
+
   it('customer-app OTP requests (no loginRole) are unchanged', async () => {
-    const { service, sms } = buildWithUser(null);
+    const { service, sms } = build([]);
     await service.sendOtp({ mobile: '9123456780', purpose: 'LOGIN' } as any);
     expect(sms.sendOtp).toHaveBeenCalled();
   });
 
   it('verifying with requestedRole EMPLOYEE cannot create an employee out of thin air', async () => {
-    const { service } = buildWithUser(null);
+    const { service } = build([]);
+    await expect(
+      service.verifyOtp({ mobile: '9123456780', code: '123456', purpose: 'LOGIN', requestedRole: 'EMPLOYEE' } as any),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('verifying as EMPLOYEE refuses a role-only account (no profile)', async () => {
+    const { service } = build([employee('u1', { roles: ['CUSTOMER', 'EMPLOYEE'] })]);
     await expect(
       service.verifyOtp({ mobile: '9123456780', code: '123456', purpose: 'LOGIN', requestedRole: 'EMPLOYEE' } as any),
     ).rejects.toMatchObject({ status: 404 });

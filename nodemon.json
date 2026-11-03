@@ -1,0 +1,7 @@
+{
+  "watch": ["src", ".env"],
+  "ext": "ts,json,env",
+  "ignore": ["src/**/*.spec.ts"],
+  "delay": 500,
+  "exec": "tsc -p tsconfig.build.json && node dist/main.js"
+}

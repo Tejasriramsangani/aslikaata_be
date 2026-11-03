@@ -296,7 +296,8 @@ export class PickerRequestsService {
     this.smsService
       .sendText(
         request.mobile,
-        `ASLI KAATA: Our team approved your request. You can now be a part of ASLI KAATA! Log in to the Field Ops app with this mobile number. Employee ID: ${profile.employeeCode}`,
+        `ASLI KAATA: Your picker request is approved! Employee ID: ${profile.employeeCode}. Log in to the Field Ops app with this mobile number.`,
+        { key: 'PICKER_APPROVED', variables: [profile.employeeCode] },
       )
       .catch((err) => this.logger.warn(`Approval SMS failed for ${request.requestCode}: ${err.message}`));
 
@@ -328,7 +329,8 @@ export class PickerRequestsService {
     this.smsService
       .sendText(
         request.mobile,
-        `ASLI KAATA: Sorry, we could not approve your picker request ${request.requestCode} right now. Reason: ${request.rejectionReason}. You are welcome to apply again later.`,
+        `ASLI KAATA: Picker request ${request.requestCode} not approved. You can apply again later. Reason: ${request.rejectionReason}`,
+        { key: 'PICKER_REJECTED', variables: [request.requestCode, request.rejectionReason] },
       )
       .catch((err) => this.logger.warn(`Rejection SMS failed for ${request.requestCode}: ${err.message}`));
 

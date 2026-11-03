@@ -7,6 +7,7 @@ import {
   Inject,
   Logger,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -19,6 +20,11 @@ import { User, UserDocument, UserStatus } from './schemas/user.schema.js';
 import { Session, SessionDocument } from './schemas/session.schema.js';
 import { OtpChallenge, OtpChallengeDocument, OtpPurpose } from './schemas/otp-challenge.schema.js';
 import { AdminCredential, AdminCredentialDocument } from './schemas/admin-credential.schema.js';
+import {
+  EmployeeProfile,
+  EmployeeProfileDocument,
+  EmployeeStatus,
+} from '../employees/schemas/employee-profile.schema.js';
 import { SendOtpDto } from './dto/send-otp.dto.js';
 import { VerifyOtpDto } from './dto/verify-otp.dto.js';
 import { AdminLoginDto, RefreshTokenDto } from './dto/admin-login.dto.js';
@@ -40,6 +46,7 @@ export class IdentityService implements OnModuleInit {
     @Inject(SMS_SERVICE) private readonly smsService: ISmsService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    @InjectModel(EmployeeProfile.name) private readonly employeeProfileModel: Model<EmployeeProfileDocument>,
   ) {}
 
   async onModuleInit() {
@@ -119,21 +126,40 @@ export class IdentityService implements OnModuleInit {
     );
   }
 
-  /** Throws unless the mobile belongs to an active user holding the EMPLOYEE role. */
-  private async assertEmployeeAccount(mobile: string) {
-    const user = await this.userModel.findOne({ mobile: { $in: [mobile, `+91${mobile}`] } });
-    if (!user || !user.roles.includes(UserRole.EMPLOYEE)) {
+  /**
+   * Returns the user to log in to the employee app, or throws.
+   *
+   * A number counts as an employee only when it has the EMPLOYEE role AND an employee profile
+   * (created when an admin approves a picker request or adds the employee). The role alone is
+   * not enough: older builds handed it to anyone who signed in through the employee app.
+   * The same number may be stored as "98..." and "+9198...", so every match is checked.
+   */
+  private async assertEmployeeAccount(mobile: string): Promise<UserDocument> {
+    const users = await this.userModel.find({ mobile: { $in: [mobile, `+91${mobile}`] } });
+    const withRole = users.filter((u) => u.roles.includes(UserRole.EMPLOYEE));
+    const profiles = withRole.length
+      ? await this.employeeProfileModel
+          .find({ userId: { $in: withRole.map((u) => String(u._id)) } })
+          .select('userId status')
+          .lean()
+      : [];
+    const profileOf = (u: UserDocument) => profiles.find((p: any) => String(p.userId) === String(u._id));
+    const employee = withRole.find((u) => profileOf(u));
+
+    const profile = employee ? profileOf(employee) : undefined;
+    if (!employee || !profile || profile.status === EmployeeStatus.REJECTED) {
       throw new NotFoundException({
         message: "You don't have an account on this app yet. Raise a request to become a freelance picker.",
         details: { code: 'EMPLOYEE_ACCOUNT_NOT_FOUND' },
       });
     }
-    if (user.status !== UserStatus.ACTIVE) {
+    if (employee.status !== UserStatus.ACTIVE || profile.status === EmployeeStatus.SUSPENDED) {
       throw new ForbiddenException({
         message: 'Your account has been suspended. Please contact support.',
         details: { code: 'ACCOUNT_SUSPENDED' },
       });
     }
+    return employee;
   }
 
   async sendOtp(
@@ -169,7 +195,7 @@ export class IdentityService implements OnModuleInit {
     const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes validity
     const resendCooldownUntil = new Date(now.getTime() + 60 * 1000); // 60 seconds cooldown
 
-    await this.otpModel.create({
+    const challenge = await this.otpModel.create({
       mobile: dto.mobile,
       purpose: dto.purpose,
       pickupId: dto.pickupId || null,
@@ -181,7 +207,16 @@ export class IdentityService implements OnModuleInit {
     });
 
     // Send OTP via SMS service
-    await this.smsService.sendOtp(dto.mobile, rawOtp, dto.purpose);
+    const delivered = await this.smsService.sendOtp(dto.mobile, rawOtp, dto.purpose);
+    if (!delivered && !this.isMockOtpMode()) {
+      // The SMS never left (e.g. low Fast2SMS balance): drop the challenge so the user isn't
+      // stuck behind the 60s resend cooldown for a code they never received.
+      await this.otpModel.deleteOne({ _id: challenge._id });
+      throw new ServiceUnavailableException({
+        message: 'We could not send the OTP right now. Please try again in a moment.',
+        details: { code: 'OTP_SMS_FAILED' },
+      });
+    }
 
     return {
       message: 'OTP sent successfully',
@@ -241,13 +276,14 @@ export class IdentityService implements OnModuleInit {
       throw new ForbiddenException('The admin role cannot be requested through OTP sign-in');
     }
     // Employee accounts are created by an admin (approved picker request), never by signing in.
-    if (dto.requestedRole === UserRole.EMPLOYEE) {
-      await this.assertEmployeeAccount(dto.mobile);
-    }
+    const employeeUser =
+      dto.requestedRole === UserRole.EMPLOYEE ? await this.assertEmployeeAccount(dto.mobile) : null;
     const roleToAssign = dto.requestedRole || UserRole.CUSTOMER;
-    let user = await this.userModel.findOne({
-      mobile: { $in: [dto.mobile, `+91${dto.mobile}`] },
-    });
+    let user =
+      employeeUser ??
+      (await this.userModel.findOne({
+        mobile: { $in: [dto.mobile, `+91${dto.mobile}`] },
+      }));
 
     if (!user) {
       user = await this.userModel.create({

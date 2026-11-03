@@ -133,7 +133,7 @@ describe('PickerRequestsService – approving', () => {
     expect(t.notifications.notify).toHaveBeenCalledWith(
       expect.objectContaining({ userId: OID(60), type: 'ACCOUNT_APPROVED', body: expect.stringContaining('approved your request') }),
     );
-    expect(t.sms.sendText).toHaveBeenCalledWith('9876543210', expect.stringContaining('approved your request'));
+    expect(t.sms.sendText).toHaveBeenCalledWith('9876543210', expect.stringContaining('picker request is approved'), expect.anything());
     expect(t.auditLogModel.create).toHaveBeenCalledWith(expect.objectContaining({ action: 'APPROVE_PICKER_REQUEST' }));
   });
 
@@ -174,7 +174,7 @@ describe('PickerRequestsService – rejecting', () => {
     expect(t.state.requestDoc.status).toBe('REJECTED');
     expect(t.state.requestDoc.rejectionReason).toBe('Outside our service area');
     expect(t.userModel.create).not.toHaveBeenCalled();
-    expect(t.sms.sendText).toHaveBeenCalledWith('9876543210', expect.stringContaining('Outside our service area'));
+    expect(t.sms.sendText).toHaveBeenCalledWith('9876543210', expect.stringContaining('Outside our service area'), expect.anything());
   });
 
   it('cannot reject a request that was already decided', async () => {
