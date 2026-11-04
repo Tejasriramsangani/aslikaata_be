@@ -48,6 +48,13 @@ export class IdentityController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@CurrentUser() user: CurrentUserPayload) {
+    return this.identityService.logout(user.sessionId);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@CurrentUser() user: CurrentUserPayload) {
     return user;

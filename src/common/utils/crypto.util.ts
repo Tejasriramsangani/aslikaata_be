@@ -27,6 +27,19 @@ export class CryptoUtil {
   /**
    * Generates a random cryptographic token in hex.
    */
+  /**
+   * The master key comes from .env only. A fixed key exists solely so unit tests can run; outside tests
+   * a missing key is an error rather than a silent, publicly-known default.
+   */
+  private static masterKeyFromEnv(): string {
+    const fromEnv = process.env.ENCRYPTION_MASTER_KEY;
+    if (fromEnv) return fromEnv;
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+      return '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    }
+    throw new Error('ENCRYPTION_MASTER_KEY is not set in .env');
+  }
+
   static generateRandomToken(bytes: number = 32): string {
     return crypto.randomBytes(bytes).toString('hex');
   }
@@ -37,7 +50,7 @@ export class CryptoUtil {
    */
   static encryptAes256(plainText: string, masterKeyHex?: string): string {
     const key = Buffer.from(
-      masterKeyHex || process.env.ENCRYPTION_MASTER_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      masterKeyHex || CryptoUtil.masterKeyFromEnv(),
       'hex'
     );
     const iv = crypto.randomBytes(this.IV_LENGTH);
@@ -61,7 +74,7 @@ export class CryptoUtil {
 
     const [ivHex, cipherHex, tagHex] = parts;
     const key = Buffer.from(
-      masterKeyHex || process.env.ENCRYPTION_MASTER_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      masterKeyHex || CryptoUtil.masterKeyFromEnv(),
       'hex'
     );
     const iv = Buffer.from(ivHex, 'hex');

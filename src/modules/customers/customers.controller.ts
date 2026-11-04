@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service.js';
-import { UpdateCustomerProfileDto, CreateAddressDto } from './dto/customer.dto.js';
+import { UpdateCustomerProfileDto, CreateAddressDto, SaveLocationDto } from './dto/customer.dto.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles, UserRole } from '../../common/decorators/roles.decorator.js';
@@ -35,6 +35,15 @@ export class CustomersController {
     return this.customersService.updateProfile(user.userId, dto);
   }
 
+  /** Saves the customer's latest location (GPS + resolved address + optional house number). */
+  @Put('location')
+  async saveLocation(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: SaveLocationDto,
+  ) {
+    return this.customersService.saveLocation(user.userId, dto);
+  }
+
   @Get('addresses')
   async listAddresses(@CurrentUser() user: CurrentUserPayload) {
     return this.customersService.listAddresses(user.userId);
@@ -46,6 +55,15 @@ export class CustomersController {
     @Body() dto: CreateAddressDto,
   ) {
     return this.customersService.addAddress(user.userId, dto);
+  }
+
+  /** Makes this the primary address, the one booking screens select first. */
+  @Put('addresses/:id/primary')
+  async setPrimaryAddress(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') addressId: string,
+  ) {
+    return this.customersService.setPrimaryAddress(user.userId, addressId);
   }
 
   @Delete('addresses/:id')

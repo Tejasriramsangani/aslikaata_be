@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsNotEmpty,
@@ -43,6 +44,13 @@ export class RequestPickupDto {
   @IsArray()
   @IsString({ each: true })
   tools?: string[];
+
+  /** Optional photos of the scrap (Cloudinary links from our own account; checked by the service). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @IsString({ each: true })
+  photoUrls?: string[];
 }
 
 export class UpdatePreparationDto {

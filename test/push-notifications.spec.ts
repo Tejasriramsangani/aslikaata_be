@@ -35,6 +35,21 @@ describe('planNotifications (customer + employee account messages)', () => {
     expect(b.type).toBe('PICKUP_ARRIVED');
   });
 
+  it('"nearby" message names the executive, asks for the pickup QR, and opens that pickup', () => {
+    const [n] = planNotifications(
+      'pickup.status_changed',
+      { ...base, toStatus: 'ARRIVED' },
+      { employeeName: 'Ramesh Kumar' },
+    );
+    expect(n.title).toBe('Your pickup executive is nearby');
+    expect(n.body).toContain('Ramesh Kumar is here for pickup AK-10245');
+    expect(n.body).toMatch(/show your pickup QR code to continue/i);
+    expect(n.data).toMatchObject({ pickupId: OID(1), pickupCode: 'AK-10245', type: 'PICKUP_ARRIVED' });
+
+    const [anonymous] = planNotifications('pickup.status_changed', { ...base, toStatus: 'ARRIVED' });
+    expect(anonymous.body).toContain('Your pickup executive is here for pickup');
+  });
+
   it('postpones with the admin reason and the new date + slot', () => {
     const [n] = planNotifications('pickup.status_changed', {
       ...base,

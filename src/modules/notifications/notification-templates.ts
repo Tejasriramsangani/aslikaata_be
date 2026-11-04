@@ -77,20 +77,31 @@ export function planNotifications(
           );
           break;
         }
-        case 'ON_THE_WAY':
+        case 'SETTLED':
+          toCustomer(
+            NotificationType.PAYMENT_RECORDED,
+            'Payment recorded',
+            `Your payment for pickup ${code} is recorded. Open the app and tell the picker your completion code to finish.`,
+          );
+          break;
+        case 'ON_THE_WAY': {
+          const who = str(ctx.employeeName).trim();
           toCustomer(
             NotificationType.PICKUP_ON_THE_WAY,
             'Picker is on the way',
-            `Your picker has started for pickup ${code}. Please keep your scrap ready.`,
+            `${who || 'Your picker'} has started for pickup ${code}. Please keep your scrap ready.`,
           );
           break;
-        case 'ARRIVED':
+        }
+        case 'ARRIVED': {
+          const who = str(ctx.employeeName).trim();
           toCustomer(
             NotificationType.PICKUP_ARRIVED,
-            'Picker has arrived',
-            `Your picker has reached your location for pickup ${code}. Show your QR code to begin.`,
+            'Your pickup executive is nearby',
+            `${who || 'Your pickup executive'} is here for pickup ${code}. Open the app and show your pickup QR code to continue.`,
           );
           break;
+        }
         case 'COMPLETED':
           toCustomer(NotificationType.PICKUP_COMPLETED, 'Pickup completed', `Pickup ${code} is complete. Thank you!`);
           break;
@@ -120,8 +131,8 @@ export function planNotifications(
         NotificationType.SUMMARY_READY,
         'Review your pickup summary',
         Number.isFinite(rupees)
-          ? `Your pickup ${code} total is ₹${rupees.toFixed(2)}. Please review and approve.`
-          : `Your pickup ${code} summary is ready. Please review and approve.`,
+          ? `Your pickup ${code} total is ₹${rupees.toFixed(2)}. Review it, and if you agree, share your code with the executive.`
+          : `Your pickup ${code} summary is ready. Review it, and if you agree, share your code with the executive.`,
       );
       break;
     }

@@ -32,6 +32,8 @@ import { Address, AddressDocument } from '../customers/schemas/address.schema.js
 import { CustomerProfile, CustomerProfileDocument } from '../customers/schemas/customer-profile.schema.js';
 import { User, UserDocument } from '../identity/schemas/user.schema.js';
 import { TimeSlot, TimeSlotDocument } from '../catalog/schemas/time-slot.schema.js';
+import { maxPickupsPerEmployeePerDay } from '../../common/utils/capacity.util.js';
+import { MAX_PICKUP_PHOTOS, isTrustedPhotoUrl } from '../../common/utils/cloudinary.util.js';
 import { WeightRange, WeightRangeDocument } from '../catalog/schemas/weight-range.schema.js';
 import {
   EmployeeProfile,
@@ -220,7 +222,17 @@ export class PickupsService {
       categoryIds = Array.from(activeCatIdSet);
     }
 
-    const pickupCode = await this.sequenceService.generatePickupCode();
+    // Optional photos of the scrap: only links to our own Cloudinary account are accepted.
+    const photoUrls = Array.from(new Set(dto.photoUrls ?? []));
+    if (photoUrls.length > MAX_PICKUP_PHOTOS || !photoUrls.every((url) => isTrustedPhotoUrl(url))) {
+      throw new BadRequestException(
+        `Photos must be uploaded through the app (at most ${MAX_PICKUP_PHOTOS}). Please remove them and try again.`,
+      );
+    }
+
+    const pickupCode = await this.sequenceService.generatePickupCode(
+      async (code) => !!(await this.pickupModel.exists({ pickupCode: code })),
+    );
 
     const pickup = await this.pickupModel.create({
       pickupCode,
@@ -228,6 +240,7 @@ export class PickupsService {
       addressSnapshot: {
         line1: address.line1,
         line2: address.line2 || '',
+        houseNumber: address.houseNumber || '',
         city: address.city,
         state: address.state,
         pincode: address.pincode,
@@ -255,6 +268,7 @@ export class PickupsService {
         tools: dto.tools || [],
         remarks: dto.remarks || '',
       },
+      photos: photoUrls.map((fileUrl) => ({ fileUrl, uploadedAt: new Date() })),
       timestamps: {
         requestedAt: new Date(),
       },
@@ -329,6 +343,14 @@ export class PickupsService {
     if (dto.tools) pickup.preparation.tools = dto.tools;
     if (dto.remarks) pickup.preparation.remarks = dto.remarks;
     if (dto.photoUrls && dto.photoUrls.length > 0) {
+      if (
+        pickup.photos.length + dto.photoUrls.length > MAX_PICKUP_PHOTOS ||
+        !dto.photoUrls.every((url) => isTrustedPhotoUrl(url))
+      ) {
+        throw new BadRequestException(
+          `Photos must be uploaded through the app (at most ${MAX_PICKUP_PHOTOS} per pickup).`,
+        );
+      }
       const newPhotos = dto.photoUrls.map((url) => ({ fileUrl: url, uploadedAt: new Date() }));
       pickup.photos.push(...newPhotos);
     }
@@ -493,6 +515,36 @@ export class PickupsService {
     const hasExpired = activeDocs.some((d) => d.expiresOn && d.expiresOn < now);
     if (hasExpired) {
       throw new BadRequestException('Cannot assign employee: one or more required documents have expired.');
+    }
+
+    // One employee can only take so many pickups on the same day (counted by the pickup's scheduled date).
+    const dailyLimit = maxPickupsPerEmployeePerDay();
+    const alreadyThatDay = await this.pickupModel.countDocuments({
+      _id: { $ne: pickup._id },
+      'assignment.employeeProfileId': employee._id.toString(),
+      scheduledDate: pickup.scheduledDate,
+      status: {
+        $in: [
+          PickupStatus.ASSIGNED,
+          PickupStatus.ON_THE_WAY,
+          PickupStatus.ARRIVED,
+          PickupStatus.VERIFIED,
+          PickupStatus.IN_PROGRESS,
+          PickupStatus.MEASURED,
+          PickupStatus.SUMMARY_READY,
+          PickupStatus.CUSTOMER_CONFIRMED,
+          PickupStatus.PAYMENT_PENDING,
+          PickupStatus.SETTLED,
+          PickupStatus.OTP_VERIFIED,
+          PickupStatus.INVOICED,
+          PickupStatus.COMPLETED,
+        ],
+      },
+    });
+    if (alreadyThatDay >= dailyLimit) {
+      throw new BadRequestException(
+        `${employee.fullName} already has ${alreadyThatDay} pickups on ${pickup.scheduledDate} (limit ${dailyLimit} per day). Choose another employee or reschedule the order.`,
+      );
     }
 
     pickup.assignment = {

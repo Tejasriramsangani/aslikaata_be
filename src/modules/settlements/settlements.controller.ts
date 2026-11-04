@@ -50,6 +50,17 @@ export class SettlementsController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.CUSTOMER)
+  @Get('customer/pickups/:id/closing-code')
+  async getClosingCode(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') pickupId: string,
+  ) {
+    return this.settlementsService.getClosingCode(pickupId, user.userId);
+  }
+
+  /** Issues a brand-new completion code (the old one stops working). */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CUSTOMER)
   @Post('customer/pickups/:id/resend-closing-otp')
   async resendClosingOtp(
     @CurrentUser() user: CurrentUserPayload,

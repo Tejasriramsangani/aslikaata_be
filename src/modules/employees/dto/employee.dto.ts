@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNotEmpty,
@@ -56,6 +57,11 @@ export class ReviewDocumentDto {
   @IsOptional()
   @IsString()
   rejectionReason?: string;
+}
+
+export class SetDutyDto {
+  @IsBoolean()
+  onDuty: boolean;
 }
 
 export class ReviewEmployeeStatusDto {

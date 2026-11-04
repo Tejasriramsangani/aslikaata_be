@@ -12,6 +12,9 @@ export class AddressSnapshot {
   @Prop({ type: String, default: '' })
   line2?: string;
 
+  @Prop({ type: String, default: '' })
+  houseNumber?: string;
+
   @Prop({ type: String, required: true })
   city: string;
 

@@ -11,10 +11,7 @@ import { SequenceService } from './sequence.service.js';
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>(
-          'MONGODB_URI',
-          'mongodb://localhost:27017/aslikaata',
-        ),
+        uri: configService.getOrThrow<string>('MONGODB_URI'),
       }),
       inject: [ConfigService],
     }),

@@ -243,9 +243,10 @@ export class OutboxService {
   private async sendPlannedNotifications(eventType: string, payload: Record<string, any>) {
     try {
       let employeeName: string | undefined;
+      // The picker's name appears in the customer's "assigned / on the way / nearby" messages.
       if (
         eventType === 'pickup.status_changed' &&
-        payload.toStatus === PickupStatus.ASSIGNED &&
+        [PickupStatus.ASSIGNED, PickupStatus.ON_THE_WAY, PickupStatus.ARRIVED].includes(payload.toStatus) &&
         payload.customerId &&
         payload.pickupId
       ) {

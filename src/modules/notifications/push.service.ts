@@ -6,6 +6,23 @@ import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 import { DeviceToken, DeviceTokenDocument } from './schemas/device-token.schema.js';
 
+/**
+ * Turns a private key pasted into .env into a proper PEM. Handles the usual mishaps:
+ * wrapping quotes, literal "\n" sequences (unquoted values are not expanded by dotenv), and a key
+ * whose line breaks were replaced by spaces.
+ */
+export function normalizePrivateKey(raw: string): string {
+  let key = raw.trim().replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
+  if (!key.includes('\n')) {
+    const m = key.match(/-----BEGIN ([A-Z ]+)-----([\s\S]*)-----END \1-----/);
+    if (m) {
+      const lines = m[2].replace(/\s+/g, '').match(/.{1,64}/g) ?? [];
+      key = `-----BEGIN ${m[1]}-----\n${lines.join('\n')}\n-----END ${m[1]}-----\n`;
+    }
+  }
+  return key.endsWith('\n') ? key : `${key}\n`;
+}
+
 /** Android notification channel created by the customer app. Must match the app's channel id. */
 export const PICKUP_CHANNEL_ID = 'pickup_updates';
 
@@ -26,6 +43,7 @@ export interface PushMessage {
  * Sends Firebase Cloud Messaging pushes to every device a user has registered.
  *
  * Credentials (first match wins):
+ *   FB_PROJECT_ID + FB_CLIENT_EMAIL + FB_PRIVATE_KEY  the three values from the service-account key
  *   FIREBASE_SERVICE_ACCOUNT_JSON  raw service-account JSON, or the same JSON base64-encoded
  *   GOOGLE_APPLICATION_CREDENTIALS path to the service-account file
  * With neither set, push is disabled and sends are logged and skipped (like the mock SMS provider),
@@ -60,6 +78,26 @@ export class PushService {
   private initFirebase(): App | null {
     const existing = getApps()[0];
     if (existing) return existing;
+
+    // Preferred: the three values from the service-account key, as separate .env settings.
+    const projectId = this.config.get<string>('FB_PROJECT_ID')?.trim();
+    const clientEmail = this.config.get<string>('FB_CLIENT_EMAIL')?.trim();
+    const privateKey = this.config.get<string>('FB_PRIVATE_KEY');
+    if (projectId || clientEmail || privateKey) {
+      const missing = [
+        ['FB_PROJECT_ID', projectId],
+        ['FB_CLIENT_EMAIL', clientEmail],
+        ['FB_PRIVATE_KEY', privateKey],
+      ]
+        .filter(([, v]) => !v)
+        .map(([k]) => k);
+      if (missing.length) {
+        throw new Error(`Incomplete Firebase settings in .env, missing: ${missing.join(', ')}`);
+      }
+      return initializeApp({
+        credential: cert({ projectId, clientEmail, privateKey: normalizePrivateKey(privateKey!) }),
+      });
+    }
 
     const raw = this.config.get<string>('FIREBASE_SERVICE_ACCOUNT_JSON');
     if (raw) {

@@ -31,6 +31,17 @@ export class EmployeeProfile {
   @Prop({ type: String, required: true, enum: EmployeeStatus, default: EmployeeStatus.ONBOARDING, index: true })
   status: EmployeeStatus;
 
+  /**
+   * Duty switch, like a ride-hailing captain going online: only employees who are ON DUTY (and logged in)
+   * are offered for new pickups on the admin assign screen. Employees start off duty and switch it themselves.
+   */
+  @Prop({ type: Boolean, default: false })
+  onDuty: boolean;
+
+  /** When the duty switch last changed (shows "shift ended at ..." after going off duty). */
+  @Prop({ type: Date, default: null })
+  dutyChangedAt?: Date | null;
+
   @Prop({ type: String, default: null })
   vehicleType?: string | null;
 

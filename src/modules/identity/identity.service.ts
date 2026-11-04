@@ -10,7 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -55,6 +55,9 @@ export class IdentityService implements OnModuleInit {
       // `npm run seed:admins` (or from the Users screen). For a brand-new, empty environment
       // only, a first Super Admin can be bootstrapped from ADMIN_BOOTSTRAP_* env vars.
       await this.bootstrapFirstAdminFromEnv();
+
+      // Demo/test accounts are opt-in (SEED_DEMO_DATA=true in .env); real accounts live in the database.
+      if (process.env.SEED_DEMO_DATA !== 'true') return;
 
       // Seed Test & Employee accounts
       for (const testUser of [
@@ -517,6 +520,22 @@ export class IdentityService implements OnModuleInit {
   }
 
   /**
+   * Ends this login. Revokes the whole refresh-token family of the session behind the caller's access
+   * token, so the device can no longer silently sign back in and the user stops counting as logged in.
+   */
+  async logout(sessionId?: string): Promise<{ loggedOut: boolean }> {
+    if (!sessionId || !isValidObjectId(sessionId)) return { loggedOut: true };
+    const session = await this.sessionModel.findById(sessionId);
+    if (session) {
+      await this.sessionModel.updateMany(
+        { familyId: session.familyId, revokedAt: null },
+        { revokedAt: new Date() },
+      );
+    }
+    return { loggedOut: true };
+  }
+
+  /**
    * Helper to create a new session and issue dual JWT tokens.
    */
   private async createSession(
@@ -555,10 +574,7 @@ export class IdentityService implements OnModuleInit {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: this.configService.get<string>(
-        'JWT_ACCESS_SECRET',
-        'aslikaata_jwt_access_super_secret_key_2026_x98f2',
-      ),
+      secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
       expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRES_IN', '15m')) as any,
     });
 

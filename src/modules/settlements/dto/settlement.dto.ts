@@ -1,5 +1,6 @@
 import {
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -37,6 +38,18 @@ export class VerifyClosingOtpDto {
   @IsString()
   @Length(6, 6, { message: 'Closing OTP must be exactly 6 digits' })
   code: string;
+
+  /**
+   * How the customer was paid. The completion code is the customer's confirmation, so the payment is
+   * recorded together with it. Defaults to CASH.
+   */
+  @IsOptional()
+  @IsIn([SettlementType.CASH, SettlementType.UPI])
+  paymentType?: SettlementType.CASH | SettlementType.UPI;
+
+  @IsOptional()
+  @IsString()
+  upiReference?: string;
 }
 
 export class CreateDonationRecipientDto {

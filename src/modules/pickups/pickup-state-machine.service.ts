@@ -6,7 +6,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, type ClientSession } from 'mongoose';
 import { Pickup, PickupDocument } from './schemas/pickup.schema.js';
 import { PickupEvent, PickupEventDocument } from './schemas/pickup-event.schema.js';
 import { PickupStatus } from './schemas/pickup-status.enum.js';
@@ -23,6 +23,8 @@ export interface TransitionContext {
   };
   payload?: Record<string, any>;
   reason?: string;
+  /** When set, the status change, its event row and its outbox event all join this transaction. */
+  session?: ClientSession | null;
 }
 
 @Injectable()
@@ -155,6 +157,7 @@ export class PickupStateMachineService {
     this.validateTransition(ctx);
 
     const { pickup, toStatus, actor, payload, reason } = ctx;
+    const session = ctx.session ?? undefined;
     const fromStatus = pickup.status;
     const now = new Date();
 
@@ -171,10 +174,10 @@ export class PickupStateMachineService {
       };
     }
 
-    await pickup.save();
+    await (session ? pickup.save({ session }) : pickup.save());
 
     // Append-only event log
-    await this.eventModel.create({
+    const eventRow = {
       pickupId: pickup._id.toString(),
       eventType: `STATUS_${toStatus}`,
       fromStatus,
@@ -185,14 +188,16 @@ export class PickupStateMachineService {
         name: actor.name || null,
       },
       payload: { ...payload, reason },
-    });
+    };
+    if (session) await this.eventModel.create([eventRow], { session });
+    else await this.eventModel.create(eventRow);
 
     this.logger.log(
       `Pickup ${pickup.pickupCode} transitioned from ${fromStatus} -> ${toStatus} by ${actor.role}`,
     );
 
     if (this.outboxService) {
-      await this.outboxService.createEvent('pickup.status_changed', {
+      const outboxPayload = {
         pickupId: pickup._id.toString(),
         pickupCode: pickup.pickupCode,
         customerId: pickup.customerId,
@@ -200,7 +205,9 @@ export class PickupStateMachineService {
         toStatus,
         actorRole: actor.role,
         reason: reason || null,
-      });
+      };
+      if (session) await this.outboxService.createEvent('pickup.status_changed', outboxPayload, session);
+      else await this.outboxService.createEvent('pickup.status_changed', outboxPayload);
     }
 
     return pickup;

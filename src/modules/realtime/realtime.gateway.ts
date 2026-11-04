@@ -107,10 +107,7 @@ export class RealtimeGateway
 
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
 
-      const secret = this.configService.get<string>(
-        'JWT_ACCESS_SECRET',
-        'aslikaata_jwt_access_super_secret_key_2026_x98f2',
-      );
+      const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
 
       const decoded = this.jwtService.verify<JwtPayload>(token, { secret });
       client.data.user = {

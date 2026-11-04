@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Param,
   Query,
@@ -15,6 +16,7 @@ import {
   UploadEmployeeDocumentDto,
   ReviewDocumentDto,
   ReviewEmployeeStatusDto,
+  SetDutyDto,
 } from './dto/employee.dto.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
@@ -42,7 +44,14 @@ export class EmployeesController {
   @Roles(UserRole.EMPLOYEE)
   @Get('employee/profile')
   async getProfile(@CurrentUser() user: CurrentUserPayload) {
-    return this.employeesService.getProfile(user.userId);
+    return this.employeesService.getMyProfile(user.userId);
+  }
+
+  /** The Duty ON / OFF switch in the employee app header. */
+  @Roles(UserRole.EMPLOYEE)
+  @Put('employee/duty')
+  async setDuty(@CurrentUser() user: CurrentUserPayload, @Body() dto: SetDutyDto) {
+    return this.employeesService.setDuty(user.userId, dto.onDuty);
   }
 
   @Roles(UserRole.EMPLOYEE)

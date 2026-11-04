@@ -246,7 +246,9 @@ export class PickerRequestsService {
     if (!profile) {
       profile = await this.profileModel.create({
         userId,
-        employeeCode: await this.sequenceService.generateEmployeeCode(),
+        employeeCode: await this.sequenceService.generateEmployeeCode(
+          async (code) => !!(await this.profileModel.exists({ employeeCode: code })),
+        ),
         fullName: request.fullName,
         status: EmployeeStatus.APPROVED,
         vehicleType: VEHICLE_LABELS[request.vehicleType],

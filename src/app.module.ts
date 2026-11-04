@@ -4,6 +4,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { DatabaseModule } from './common/database/database.module.js';
+import { validateEnv } from './common/config/validate-env.js';
 import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor.js';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 
@@ -22,6 +23,8 @@ import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { AuditModule } from './modules/audit/audit.module.js';
 import { RoutingModule } from './modules/routing/routing.module.js';
 import { OperationsModule } from './modules/operations/operations.module.js';
+import { GeoModule } from './modules/geo/geo.module.js';
+import { UploadsModule } from './modules/uploads/uploads.module.js';
 
 import { AppController } from './app.controller.js';
 
@@ -30,6 +33,7 @@ import { AppController } from './app.controller.js';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate: validateEnv,
     }),
     ScheduleModule.forRoot(),
     DatabaseModule,
@@ -48,6 +52,8 @@ import { AppController } from './app.controller.js';
     AuditModule,
     RoutingModule,
     OperationsModule,
+    GeoModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [

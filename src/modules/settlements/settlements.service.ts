@@ -32,6 +32,27 @@ import type { CurrentUserPayload } from '../../common/decorators/current-user.de
 import { OutboxService } from '../outbox/outbox.service.js';
 import { DailyStatsService } from '../analytics/daily-stats.service.js';
 
+/**
+ * The customer sees the completion code from the moment the weighing summary is ready (right under the
+ * summary) until the pickup is completed. Sharing the code is how they confirm the summary.
+ */
+const CLOSING_CODE_STATUSES: PickupStatus[] = [
+  PickupStatus.SUMMARY_READY,
+  PickupStatus.CUSTOMER_CONFIRMED,
+  PickupStatus.PAYMENT_PENDING,
+  PickupStatus.SETTLED,
+];
+/** Long enough to cover handing over the money; the customer can refresh for a new one any time. */
+/** Statuses a completion code can finish: summary ready (the code confirms it) up to payment recorded. */
+const COMPLETABLE_STATUSES: PickupStatus[] = [
+  PickupStatus.SUMMARY_READY,
+  PickupStatus.CUSTOMER_CONFIRMED,
+  PickupStatus.PAYMENT_PENDING,
+  PickupStatus.SETTLED,
+];
+const CLOSING_CODE_MINUTES = 30;
+const CLOSING_CODE_MAX_ATTEMPTS = 5;
+
 @Injectable()
 export class SettlementsService {
   private readonly logger = new Logger(SettlementsService.name);
@@ -60,10 +81,64 @@ export class SettlementsService {
   ) {}
 
   /**
+   * Records the payment and moves the pickup CUSTOMER_CONFIRMED / PAYMENT_PENDING -> SETTLED. Shared by the
+   * explicit settlement call and by completion with the customer's code. Pass `session` to make it part
+   * of a surrounding transaction.
+   */
+  private async applySettlement(
+    pickup: PickupDocument,
+    employee: EmployeeProfileDocument,
+    employeeUserId: string,
+    input: { type: SettlementType; idempotencyKey: string; upiReference?: string; donationRecipientId?: string },
+    session?: any,
+  ): Promise<SettlementDocument> {
+    // Validate donation recipient if donating
+    if (input.type === SettlementType.DONATE) {
+      if (!input.donationRecipientId) {
+        throw new BadRequestException('donationRecipientId is required when settlement type is DONATE');
+      }
+      const recipient = await this.donationRecipientModel.findById(input.donationRecipientId);
+      if (!recipient || !recipient.isActive) {
+        throw new NotFoundException('Selected donation recipient not found or inactive');
+      }
+    }
+
+    const settlementAmount = pickup.totals.totalAmount; // integer paise calculated by server
+    const doc = {
+      pickupId: pickup._id.toString(),
+      type: input.type,
+      amount: settlementAmount,
+      status: SettlementStatus.COMPLETED,
+      upiReference: input.upiReference || null,
+      idempotencyKey: input.idempotencyKey,
+      donationRecipientId: input.donationRecipientId || null,
+      receiptNumber: input.type === SettlementType.DONATE ? `DON-${Date.now()}` : null,
+      settledAt: new Date(),
+    };
+    const settlement = session
+      ? (await this.settlementModel.create([doc], { session }))[0]
+      : await this.settlementModel.create(doc);
+
+    // CUSTOMER_CONFIRMED -> SETTLED
+    await this.stateMachine.transition({
+      pickup,
+      toStatus: PickupStatus.SETTLED,
+      actor: { userId: employeeUserId, role: UserRole.EMPLOYEE, name: employee.fullName },
+      payload: {
+        employeeProfileId: employee._id.toString(),
+        settlementType: input.type,
+        amount: settlementAmount,
+      },
+      session,
+    });
+    return settlement;
+  }
+
+  /**
    * Flow Step 9: Settlement Recording.
    * Employee records the payment (Cash/UPI/Donate).
    * Guard: Payment is blocked until the customer has approved (status must be CUSTOMER_CONFIRMED).
-   * Dispatches the Gate 3 closing OTP to the customer upon successful settlement.
+   * The Gate 3 closing code is NOT texted: the customer reads it from their own app (getClosingCode).
    */
   async recordSettlement(
     pickupId: string,
@@ -93,61 +168,7 @@ export class SettlementsService {
       return { settlement: existing, message: 'Settlement already recorded (idempotent)' };
     }
 
-    // Validate donation recipient if donating
-    let donationRecipient: DonationRecipientDocument | null = null;
-    if (dto.type === SettlementType.DONATE) {
-      if (!dto.donationRecipientId) {
-        throw new BadRequestException('donationRecipientId is required when settlement type is DONATE');
-      }
-      donationRecipient = await this.donationRecipientModel.findById(dto.donationRecipientId);
-      if (!donationRecipient || !donationRecipient.isActive) {
-        throw new NotFoundException('Selected donation recipient not found or inactive');
-      }
-    }
-
-    const settlementAmount = pickup.totals.totalAmount; // integer paise calculated by server
-
-    const settlement = await this.settlementModel.create({
-      pickupId: pickup._id.toString(),
-      type: dto.type,
-      amount: settlementAmount,
-      status: SettlementStatus.COMPLETED,
-      upiReference: dto.upiReference || null,
-      idempotencyKey: dto.idempotencyKey,
-      donationRecipientId: dto.donationRecipientId || null,
-      receiptNumber: dto.type === SettlementType.DONATE ? `DON-${Date.now()}` : null,
-      settledAt: new Date(),
-    });
-
-    // Transition pickup: CUSTOMER_CONFIRMED -> SETTLED
-    await this.stateMachine.transition({
-      pickup,
-      toStatus: PickupStatus.SETTLED,
-      actor: {
-        userId: employeeUserId,
-        role: UserRole.EMPLOYEE,
-        name: employee.fullName,
-      },
-      payload: {
-        employeeProfileId: employee._id.toString(),
-        settlementType: dto.type,
-        amount: settlementAmount,
-      },
-    });
-
-    // Gate 3: Automatically dispatch completion OTP to customer's registered number
-    const customer = await this.userModel.findById(pickup.customerId);
-    if (customer) {
-      try {
-        await this.identityService.sendOtp({
-          mobile: customer.mobile,
-          purpose: OtpPurpose.PICKUP_COMPLETION,
-          pickupId: pickup._id.toString(),
-        });
-      } catch (err) {
-        this.logger.warn(`Completion OTP cooldown or dispatch notice: ${err}`);
-      }
-    }
+    const settlement = await this.applySettlement(pickup, employee, employeeUserId, dto);
 
     const outbox = this.outboxService;
     if (outbox) {
@@ -162,22 +183,29 @@ export class SettlementsService {
 
     return {
       settlement,
-      message: 'Settlement recorded successfully. Closing OTP dispatched to customer.',
+      message: 'Payment recorded. Ask the customer for the code shown in their app to complete the pickup.',
     };
   }
 
   /**
-   * Resends closing OTP to customer with cooldown enforcement.
+   * The completion code for a pickup, for the CUSTOMER to read out to the picker (shown in the app, like
+   * the pickup QR, instead of an SMS). Available once the customer has approved the final amount.
+   *
+   * The same code is returned until it is used, expires or runs out of attempts; then a new one is issued.
+   * `refresh` retires the current code and issues a new one on demand.
    */
-  async resendClosingOtp(pickupId: string, customerId: string) {
+  async getClosingCode(
+    pickupId: string,
+    customerId: string,
+    opts: { refresh?: boolean } = {},
+  ): Promise<{ code: string; expiresAt: Date; pickupCode: string }> {
     const pickup = await this.pickupModel.findOne({ _id: pickupId, customerId });
     if (!pickup) {
       throw new NotFoundException('Pickup not found');
     }
-
-    if (pickup.status !== PickupStatus.SETTLED) {
+    if (!CLOSING_CODE_STATUSES.includes(pickup.status)) {
       throw new BadRequestException(
-        `Closing OTP can only be resent when pickup is in SETTLED status, but is currently ${pickup.status}`,
+        'Your code appears with the weighing summary and stays until the pickup is completed.',
       );
     }
 
@@ -186,11 +214,47 @@ export class SettlementsService {
       throw new NotFoundException('Customer user record not found');
     }
 
-    return this.identityService.sendOtp({
+    const now = new Date();
+    const scope = {
       mobile: customer.mobile,
       purpose: OtpPurpose.PICKUP_COMPLETION,
       pickupId: pickup._id.toString(),
+      // The code belongs to the summary on screen: new amounts mean a new code.
+      summaryHash: pickup.confirmation?.summaryHash ?? null,
+    };
+
+    const active = await this.otpModel
+      .findOne({ ...scope, consumedAt: null, expiresAt: { $gt: now } })
+      .sort({ createdAt: -1 });
+    if (active && active.codeEnc && !opts.refresh && active.attempts < active.maxAttempts) {
+      return {
+        code: CryptoUtil.decryptAes256(active.codeEnc),
+        expiresAt: active.expiresAt,
+        pickupCode: pickup.pickupCode,
+      };
+    }
+
+    // Retire whatever is still open for this pickup, then issue a fresh code.
+    await this.otpModel.updateMany({ ...scope, consumedAt: null }, { $set: { consumedAt: now } });
+
+    const code = CryptoUtil.generateOtp(6);
+    const expiresAt = new Date(now.getTime() + CLOSING_CODE_MINUTES * 60 * 1000);
+    await this.otpModel.create({
+      ...scope,
+      codeHash: CryptoUtil.hashSha256(code, customer.mobile),
+      codeEnc: CryptoUtil.encryptAes256(code),
+      channel: 'APP',
+      attempts: 0,
+      maxAttempts: CLOSING_CODE_MAX_ATTEMPTS,
+      expiresAt,
+      resendCooldownUntil: now,
     });
+    return { code, expiresAt, pickupCode: pickup.pickupCode };
+  }
+
+  /** Customer asks for a brand-new code (the old one is retired). */
+  async resendClosingOtp(pickupId: string, customerId: string) {
+    return this.getClosingCode(pickupId, customerId, { refresh: true });
   }
 
   /**
@@ -215,9 +279,11 @@ export class SettlementsService {
       throw new NotFoundException('Pickup not found');
     }
 
-    if (pickup.status !== PickupStatus.SETTLED) {
+    // The customer's code is also their confirmation of the weighing summary, so completion works straight
+    // from SUMMARY_READY (payment is recorded together with it), as well as after an earlier approval / payment.
+    if (!COMPLETABLE_STATUSES.includes(pickup.status)) {
       throw new BadRequestException(
-        `Cannot verify closing OTP: pickup must be in SETTLED status, but is currently ${pickup.status}`,
+        `Cannot complete with a code: the weighing summary must be ready first, but the pickup is ${pickup.status}`,
       );
     }
 
@@ -233,17 +299,24 @@ export class SettlementsService {
       .findOne({
         mobile: customer.mobile,
         purpose: OtpPurpose.PICKUP_COMPLETION,
+        // A code only works for the pickup it was issued for, and for the summary it was issued with.
+        pickupId: pickup._id.toString(),
+        summaryHash: pickup.confirmation?.summaryHash ?? null,
         consumedAt: null,
         expiresAt: { $gt: now },
       })
       .sort({ createdAt: -1 });
 
     if (!challenge) {
-      throw new BadRequestException('Invalid or expired completion OTP. Please ask customer to request a new one.');
+      throw new BadRequestException(
+        'The completion code is missing or has expired (or the amounts changed after the customer saw them). Ask the customer to open their pickup and tap refresh for a new code.',
+      );
     }
 
     if (challenge.attempts >= challenge.maxAttempts) {
-      throw new BadRequestException('Maximum verification attempts exceeded for closing OTP.');
+      throw new BadRequestException(
+        'Too many wrong attempts. Ask the customer to tap refresh in their app for a new completion code.',
+      );
     }
 
     const inputHash = CryptoUtil.hashSha256(dto.code, customer.mobile);
@@ -251,30 +324,65 @@ export class SettlementsService {
       challenge.attempts += 1;
       await challenge.save();
       const remaining = challenge.maxAttempts - challenge.attempts;
-      throw new BadRequestException(`Incorrect closing OTP. ${remaining} attempts remaining.`);
+      throw new BadRequestException(`Incorrect completion code. ${remaining} attempts remaining.`);
     }
 
-    // Look up settlement
-    const settlement = await this.settlementModel.findOne({ pickupId: pickup._id.toString() });
-    if (!settlement) {
+    // A payment recorded earlier (older flow); otherwise it is recorded inside the transaction below.
+    let settlement: SettlementDocument | null = await this.settlementModel.findOne({ pickupId: pickup._id.toString() });
+    let settlementIsNew = false;
+    if (!settlement && pickup.status === PickupStatus.SETTLED) {
       throw new BadRequestException('Settlement record missing for this pickup');
     }
-
-    // Generate atomic sequence invoice number (INV-10001)
-    const invoiceNumber = await this.sequenceService.generateInvoiceNumber();
 
     // Execute atomic Multi-Document MongoDB Transaction (Rule 5.6 & 9).
     // On standalone MongoDB (dev), TransactionRunner falls back to running
     // without a session (session = null). Mongoose ignores { session: null }.
     const validPickup = pickup;
     const result = await this.transactionRunner.runInTransaction(async (session) => {
+      // 0. Next invoice number (INV-10001...). Drawn inside the transaction so a failed completion
+      //    does not burn a number and leave a gap in the sequence.
+      const invoiceNumber = await this.sequenceService.generateInvoiceNumber(session ?? undefined);
+
       // 1. Mark OTP challenge as consumed
       challenge.consumedAt = now;
       await challenge.save(session ? { session } : undefined);
 
+      // 1b. The code IS the customer's confirmation: record it, then the payment, in this same transaction.
+      if (validPickup.status === PickupStatus.SUMMARY_READY) {
+        const approvedAt = now;
+        validPickup.confirmation = {
+          confirmedBy: String(validPickup.customerId),
+          method: 'COMPLETION_CODE',
+          summaryHash: validPickup.confirmation?.summaryHash ?? null,
+          confirmedAt: approvedAt,
+        };
+        await this.stateMachine.transition({
+          pickup: validPickup,
+          toStatus: PickupStatus.CUSTOMER_CONFIRMED,
+          actor: { userId: String(validPickup.customerId), role: UserRole.CUSTOMER },
+          payload: { summaryHash: validPickup.confirmation.summaryHash, approvedAt, via: 'COMPLETION_CODE' },
+          session,
+        });
+      }
+      if (!settlement) {
+        settlement = await this.applySettlement(
+          validPickup,
+          employee,
+          employeeUserId,
+          {
+            type: dto.paymentType === SettlementType.UPI ? SettlementType.UPI : SettlementType.CASH,
+            idempotencyKey: `completion-${validPickup._id.toString()}`,
+            upiReference: dto.upiReference,
+          },
+          session ?? undefined,
+        );
+        settlementIsNew = true;
+      }
+      const recorded = settlement;
+
       // 2. Determine invoice type (Rule 5.10: Donation becomes donation receipt)
       const invoiceType =
-        settlement.type === SettlementType.DONATE
+        recorded.type === SettlementType.DONATE
           ? InvoiceType.DONATION_RECEIPT
           : InvoiceType.CUSTOMER_TAX_INVOICE;
 
@@ -299,10 +407,10 @@ export class SettlementsService {
             netWeightGrams: validPickup.totals.netWeightGrams,
             totalAmount: validPickup.totals.totalAmount,
             settlementDetails: {
-              settlementId: settlement._id.toString(),
-              type: settlement.type,
-              upiReference: settlement.upiReference || null,
-              settledAt: settlement.settledAt,
+              settlementId: recorded._id.toString(),
+              type: recorded.type,
+              upiReference: recorded.upiReference || null,
+              settledAt: recorded.settledAt,
             },
             issuedAt: now,
           },
@@ -310,31 +418,28 @@ export class SettlementsService {
         session ? { session } : {},
       );
 
-      // 4. Update timestamps and complete pickup in state machine
-      validPickup.timestamps.otpVerifiedAt = now;
-      validPickup.timestamps.invoicedAt = now;
-      validPickup.timestamps.completedAt = now;
-
-      await this.stateMachine.transition({
-        pickup: validPickup,
-        toStatus: PickupStatus.COMPLETED,
-        actor: {
-          userId: employeeUserId,
-          role: UserRole.EMPLOYEE,
-          name: employee.fullName,
-        },
-        payload: {
-          employeeProfileId: employee._id.toString(),
-          invoiceNumber,
-          totalAmount: validPickup.totals.totalAmount,
-        },
-      });
+      // 4. Complete the pickup. The state machine only allows one step at a time
+      //    (SETTLED -> OTP_VERIFIED -> INVOICED -> COMPLETED), each stamping its own timestamp, so walk
+      //    them in order. All three share this transaction: if anything later fails, none of them stick.
+      const actor = { userId: employeeUserId, role: UserRole.EMPLOYEE, name: employee.fullName };
+      const employeeProfileId = employee._id.toString();
+      const steps: Array<[PickupStatus, Record<string, any>]> = [
+        [PickupStatus.OTP_VERIFIED, { employeeProfileId }],
+        [PickupStatus.INVOICED, { employeeProfileId, invoiceNumber }],
+        [
+          PickupStatus.COMPLETED,
+          { employeeProfileId, invoiceNumber, totalAmount: validPickup.totals.totalAmount },
+        ],
+      ];
+      for (const [toStatus, payload] of steps) {
+        await this.stateMachine.transition({ pickup: validPickup, toStatus, actor, payload, session });
+      }
 
       // 5. Update atomic pre-aggregated dailystats (Section 9 & 10)
       if (this.dailyStatsService) {
         await this.dailyStatsService.recordPickupCompletion(
           validPickup,
-          settlement,
+          recorded,
           session ?? undefined,
         );
       }
@@ -343,6 +448,15 @@ export class SettlementsService {
     });
 
     const outbox = this.outboxService;
+    if (outbox && settlementIsNew) {
+      await outbox.createEvent('settlement.completed', {
+        pickupId: validPickup._id.toString(),
+        pickupCode: validPickup.pickupCode,
+        customerId: validPickup.customerId,
+        amount: validPickup.totals.totalAmount,
+        type: settlement?.type,
+      });
+    }
     if (outbox) {
       await outbox.createEvent('otp.verified', {
         pickupId: validPickup._id.toString(),

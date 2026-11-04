@@ -25,6 +25,18 @@ export class Address {
   @Prop({ type: String, default: '', trim: true })
   line2?: string | null;
 
+  /** What the customer calls this address. Addresses saved before labels existed count as OTHER. */
+  @Prop({ type: String, enum: ['HOME', 'WORK', 'OTHER'], default: 'OTHER' })
+  label?: 'HOME' | 'WORK' | 'OTHER';
+
+  /** Own name for an OTHER address ("Mom's house"). */
+  @Prop({ type: String, default: '', trim: true })
+  labelName?: string;
+
+  /** Optional house / flat number ("Flat 4B, Sai Residency") so the picker can find the door. */
+  @Prop({ type: String, default: '', trim: true })
+  houseNumber?: string;
+
   @Prop({ required: true, trim: true })
   city: string;
 

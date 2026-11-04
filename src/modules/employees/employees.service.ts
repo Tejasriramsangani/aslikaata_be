@@ -28,6 +28,35 @@ import {
   ReviewEmployeeStatusDto,
 } from './dto/employee.dto.js';
 import { SequenceService } from '../../common/database/sequence.service.js';
+import { Pickup, PickupDocument } from '../pickups/schemas/pickup.schema.js';
+import { PickupStatus } from '../pickups/schemas/pickup-status.enum.js';
+import { Session, SessionDocument } from '../identity/schemas/session.schema.js';
+import { maxPickupsPerEmployeePerDay } from '../../common/utils/capacity.util.js';
+
+/** Pickups still open with their employee: assigned and not yet finished or closed. */
+const OPEN_PICKUP_STATUSES = [
+  PickupStatus.ASSIGNED,
+  PickupStatus.ON_THE_WAY,
+  PickupStatus.ARRIVED,
+  PickupStatus.VERIFIED,
+  PickupStatus.IN_PROGRESS,
+  PickupStatus.MEASURED,
+  PickupStatus.SUMMARY_READY,
+  PickupStatus.CUSTOMER_CONFIRMED,
+  PickupStatus.PAYMENT_PENDING,
+  PickupStatus.SETTLED,
+  PickupStatus.OTP_VERIFIED,
+  PickupStatus.INVOICED,
+];
+/** Pickups that take up an employee's day: everything assigned to them except cancelled / failed ones. */
+const DAY_LOAD_STATUSES = [...OPEN_PICKUP_STATUSES, PickupStatus.COMPLETED];
+const FINISHED_PICKUP_STATUSES = new Set<string>([
+  PickupStatus.COMPLETED,
+  PickupStatus.INVOICED,
+  PickupStatus.OTP_VERIFIED,
+  PickupStatus.SETTLED,
+]);
+const BUSINESS_TIMEZONE = 'Asia/Kolkata';
 import { CryptoUtil } from '../../common/utils/crypto.util.js';
 import { AuditLog, AuditLogDocument } from '../../common/audit/audit-log.schema.js';
 import { OutboxService } from '../outbox/outbox.service.js';
@@ -47,9 +76,14 @@ export class EmployeesService implements OnModuleInit {
     private readonly auditLogModel: Model<AuditLogDocument>,
     private readonly sequenceService: SequenceService,
     @Optional() private readonly outboxService?: OutboxService,
+    @Optional() @InjectModel(Pickup.name) private readonly pickupModel?: Model<PickupDocument>,
+    @Optional() @InjectModel(Session.name) private readonly sessionModel?: Model<SessionDocument>,
   ) {}
 
   async onModuleInit() {
+    // Demo employees are opt-in (SEED_DEMO_DATA=true in .env). Normally employees come from the
+    // database: approved picker requests and the admin Workforce screen.
+    if (process.env.SEED_DEMO_DATA !== 'true') return;
     try {
       const demoEmployees = [
         {
@@ -110,7 +144,9 @@ export class EmployeesService implements OnModuleInit {
     let profile = await this.profileModel.findOne({ userId });
 
     if (!profile) {
-      const employeeCode = await this.sequenceService.generateEmployeeCode();
+      const employeeCode = await this.sequenceService.generateEmployeeCode(
+        async (code) => !!(await this.profileModel.exists({ employeeCode: code })),
+      );
       profile = await this.profileModel.create({
         userId,
         employeeCode,
@@ -139,6 +175,68 @@ export class EmployeesService implements OnModuleInit {
       throw new NotFoundException('Employee profile not found');
     }
     return profile;
+  }
+
+  /**
+   * The signed-in employee's own profile for the app: stored profile + phone number + work stats,
+   * all read from the database.
+   */
+  async getMyProfile(userId: string) {
+    const profile = await this.getProfile(userId);
+    const [user, pickups] = await Promise.all([
+      this.userModel.findById(userId).select('mobile'),
+      this.pickupModel
+        ? this.pickupModel
+            .find({ 'assignment.employeeProfileId': String(profile._id) })
+            .select('status totals scheduledDate')
+            .lean()
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TIMEZONE });
+    let completed = 0;
+    let openJobs = 0;
+    let todayJobs = 0;
+    let netGrams = 0;
+    let payoutPaise = 0;
+    for (const p of pickups as any[]) {
+      if (FINISHED_PICKUP_STATUSES.has(p.status)) {
+        // Customer has been paid: the collection is done even if the paperwork is still closing.
+        completed++;
+        netGrams += Number(p.totals?.netWeightGrams || 0);
+        payoutPaise += Number(p.totals?.totalAmount || 0);
+      } else if (OPEN_PICKUP_STATUSES.includes(p.status)) {
+        openJobs++;
+      }
+      if (p.scheduledDate === today && p.status !== PickupStatus.CANCELLED && p.status !== PickupStatus.FAILED) {
+        todayJobs++;
+      }
+    }
+
+    return {
+      ...profile.toObject(),
+      mobile: user?.mobile ?? null,
+      stats: {
+        totalAssigned: pickups.length,
+        completed,
+        openJobs,
+        todayJobs,
+        totalWeightKg: Number((netGrams / 1000).toFixed(2)),
+        totalPayoutRupees: Number((payoutPaise / 100).toFixed(2)),
+      },
+    };
+  }
+
+  /** Switches the employee's duty on or off (the Duty button in the app header). */
+  async setDuty(userId: string, onDuty: boolean): Promise<{ onDuty: boolean; dutyChangedAt: Date }> {
+    const profile = await this.getProfile(userId);
+    if (onDuty && profile.status !== EmployeeStatus.APPROVED) {
+      throw new BadRequestException('Your account must be approved before you can go on duty.');
+    }
+    profile.onDuty = onDuty;
+    profile.dutyChangedAt = new Date();
+    await profile.save();
+    return { onDuty: profile.onDuty, dutyChangedAt: profile.dutyChangedAt };
   }
 
   /**
@@ -197,9 +295,77 @@ export class EmployeesService implements OnModuleInit {
     });
   }
 
-  async listAllEmployees(status?: string): Promise<EmployeeProfileDocument[]> {
+  /**
+   * Employees for the admin screens, with live availability data:
+   *  - isLoggedIn: has an active (not logged-out, not expired) session in the app
+   *  - activeJobs: pickups still open with them
+   *  - jobsByDate: pickups already given to them per scheduled day ("YYYY-MM-DD" -> count)
+   *  - dailyLimit: pickups one employee can take in a day
+   * An employee is free for an order when logged in AND has fewer than dailyLimit jobs on the
+   * order's date. A busy day does not make them busy on other days.
+   */
+  async listAllEmployees(status?: string): Promise<any[]> {
     const query: any = status ? { status: status as EmployeeStatus } : {};
-    return (await this.profileModel.find(query).sort({ createdAt: -1 })) as any;
+    const profiles = await this.profileModel.find(query).sort({ createdAt: -1 });
+    if (profiles.length === 0) return [];
+
+    const userIds = profiles.map((p) => String(p.userId));
+    const profileIds = profiles.map((p) => String(p._id));
+    const [users, loggedInIds, openPickups, dayLoadPickups] = await Promise.all([
+      this.userModel.find({ _id: { $in: userIds } }).select('mobile lastLoginAt'),
+      this.sessionModel
+        ? this.sessionModel.distinct('userId', {
+            userId: { $in: userIds },
+            revokedAt: null,
+            expiresAt: { $gt: new Date() },
+          })
+        : Promise.resolve([] as any[]),
+      this.pickupModel
+        ? this.pickupModel
+            .find({ 'assignment.employeeProfileId': { $in: profileIds }, status: { $in: OPEN_PICKUP_STATUSES } })
+            .select('assignment.employeeProfileId')
+            .lean()
+        : Promise.resolve([] as any[]),
+      this.pickupModel
+        ? this.pickupModel
+            .find({ 'assignment.employeeProfileId': { $in: profileIds }, status: { $in: DAY_LOAD_STATUSES } })
+            .select('assignment.employeeProfileId scheduledDate')
+            .lean()
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+    const loggedIn = new Set((loggedInIds as any[]).map(String));
+    const jobsByProfile = new Map<string, number>();
+    for (const p of openPickups as any[]) {
+      const id = String(p.assignment?.employeeProfileId);
+      jobsByProfile.set(id, (jobsByProfile.get(id) || 0) + 1);
+    }
+
+    const jobsByDateByProfile = new Map<string, Record<string, number>>();
+    for (const p of dayLoadPickups as any[]) {
+      const id = String(p.assignment?.employeeProfileId);
+      const date = String(p.scheduledDate || '');
+      if (!date) continue;
+      const days = jobsByDateByProfile.get(id) ?? {};
+      days[date] = (days[date] || 0) + 1;
+      jobsByDateByProfile.set(id, days);
+    }
+    const dailyLimit = maxPickupsPerEmployeePerDay();
+
+    return profiles.map((p) => {
+      const user = userById.get(String(p.userId));
+      return {
+        ...p.toObject(),
+        mobile: user?.mobile ?? null,
+        lastLoginAt: user?.lastLoginAt ?? null,
+        isLoggedIn: loggedIn.has(String(p.userId)),
+        onDuty: Boolean((p as any).onDuty),
+        activeJobs: jobsByProfile.get(String(p._id)) || 0,
+        jobsByDate: jobsByDateByProfile.get(String(p._id)) ?? {},
+        dailyLimit,
+      };
+    });
   }
 
   /**
