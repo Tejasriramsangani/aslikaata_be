@@ -5,7 +5,8 @@ export type CounterDocument = HydratedDocument<Counter>;
 
 @Schema({ collection: 'counters', timestamps: true })
 export class Counter {
-  @Prop({ required: true, unique: true })
+  // MongoDB already provides a unique index for _id.
+  @Prop({ required: true })
   _id: string;
 
   @Prop({ required: true, default: 0 })

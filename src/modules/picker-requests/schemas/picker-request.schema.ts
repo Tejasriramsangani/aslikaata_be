@@ -48,7 +48,7 @@ export class PickerRequest {
   fullName: string;
 
   /** 10-digit Indian mobile (no +91). */
-  @Prop({ required: true, trim: true, index: true })
+  @Prop({ required: true, trim: true })
   mobile: string;
 
   @Prop({ type: String, default: null })

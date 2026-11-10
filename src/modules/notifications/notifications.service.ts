@@ -86,7 +86,7 @@ export class NotificationsService {
     const n = await this.notificationModel.findOneAndUpdate(
       { _id: id, userId, readAt: null },
       { $set: { readAt: new Date() } },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (!n) {
       // Already read (or not theirs): only 404 when it does not exist for this user at all.

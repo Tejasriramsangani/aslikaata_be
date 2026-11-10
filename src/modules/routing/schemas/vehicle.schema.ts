@@ -67,5 +67,4 @@ export class Vehicle {
 }
 
 export const VehicleSchema = SchemaFactory.createForClass(Vehicle);
-VehicleSchema.index({ status: 1 });
 VehicleSchema.index({ defaultEmployeeId: 1 });

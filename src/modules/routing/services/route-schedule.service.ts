@@ -74,7 +74,7 @@ export class RouteScheduleService {
   }
 
   async update(id: string, data: Partial<RouteSchedule>): Promise<RouteScheduleDocument> {
-    const s = await this.scheduleModel.findByIdAndUpdate(id, data, { new: true });
+    const s = await this.scheduleModel.findByIdAndUpdate(id, data, { returnDocument: 'after' });
     if (!s) {
       throw new NotFoundException(`Route schedule with ID ${id} not found`);
     }

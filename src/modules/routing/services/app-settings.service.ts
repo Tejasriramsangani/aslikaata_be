@@ -27,7 +27,7 @@ export class AppSettingsService {
     return this.settingModel.findOneAndUpdate(
       { key },
       { value, ...(description ? { description } : {}) },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
   }
 

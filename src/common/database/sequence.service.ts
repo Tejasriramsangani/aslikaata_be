@@ -28,7 +28,7 @@ export class SequenceService {
     const counter = await this.counterModel.findByIdAndUpdate(
       sequenceName,
       { $inc: { seq: 1 } },
-      { new: true, upsert: true, setDefaultsOnInsert: true, ...(session ? { session } : {}) },
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, ...(session ? { session } : {}) },
     );
     return counter.seq + initialOffset;
   }

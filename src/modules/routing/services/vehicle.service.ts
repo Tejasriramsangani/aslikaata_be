@@ -147,7 +147,7 @@ export class VehicleService implements OnModuleInit {
     if (data.registrationNumber) {
       data.registrationNumber = data.registrationNumber.toUpperCase().trim();
     }
-    const vehicle = await this.vehicleModel.findByIdAndUpdate(id, data, { new: true });
+    const vehicle = await this.vehicleModel.findByIdAndUpdate(id, data, { returnDocument: 'after' });
     if (!vehicle) {
       throw new NotFoundException(`Vehicle with ID ${id} not found`);
     }

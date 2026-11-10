@@ -33,5 +33,3 @@ export class Division {
 
 export const DivisionSchema = SchemaFactory.createForClass(Division);
 DivisionSchema.index({ boundary: '2dsphere' });
-DivisionSchema.index({ pincodes: 1 });
-DivisionSchema.index({ isActive: 1 });

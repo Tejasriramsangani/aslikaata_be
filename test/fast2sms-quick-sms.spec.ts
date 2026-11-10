@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Logger } from '@nestjs/common';
 import {
   Fast2SmsService,
   buildOtpMessage,
@@ -33,7 +34,17 @@ describe('Quick SMS message helpers', () => {
 });
 
 describe('Fast2SmsService (Quick SMS route)', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it('rejects HTTP 401 without logging a development OTP', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 401, json: async () => ({ return: true, message: 'Invalid Authentication' }) })));
+    const svc = new Fast2SmsService(config({ FAST2SMS_API_KEY: 'test-key' }) as any);
+    expect(await svc.sendOtp('9876000000', '314159', 'LOGIN')).toBe(false);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('314159');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('9876000000');
+  });
 
   it('sends OTPs on route q with a plain-text message and a clean 10-digit number', async () => {
     const fetchMock = vi.fn(async () => ({ status: 200, json: async () => ({ return: true, request_id: 'r1' }) }));

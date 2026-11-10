@@ -272,6 +272,8 @@ describe('CustomersService: saved location + addresses', () => {
     expect(update.$set.lastLocation.updatedAt).toBeInstanceOf(Date);
     // never invents a nameless profile: the app saves again once the name step has created it
     expect(options.upsert).toBeFalsy();
+    expect(options.returnDocument).toBe('after');
+    expect(options).not.toHaveProperty('new');
   });
 
   it('says saved:false while the customer has no profile yet', async () => {

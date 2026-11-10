@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Logger } from '@nestjs/common';
 import { Fast2SmsWhatsappService, toWhatsappVariable } from '../src/modules/identity/sms/fast2sms-whatsapp.service.js';
 
 const env = {
@@ -14,7 +15,29 @@ const fail = () => vi.fn(async (_url: string, _init?: any) => ({ status: 400, js
 const query = (fetchMock: any) => new URL(fetchMock.mock.calls[0][0]).searchParams;
 
 describe('Fast2SmsWhatsappService', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it('prefers a dedicated trimmed WhatsApp key over the SMS key', async () => {
+    const f = ok();
+    vi.stubGlobal('fetch', f);
+    const svc = new Fast2SmsWhatsappService(config({ ...env, FAST2SMS_WA_API_KEY: ' whatsapp-test-key ' }) as any);
+    expect(await svc.sendOtp('9848011111', '654321', 'LOGIN')).toBe(true);
+    expect(f.mock.calls[0][1].headers.authorization).toBe('whatsapp-test-key');
+  });
+
+  it('treats HTTP 401 as failure without logging the OTP or unmasked recipient', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 401, json: async () => ({ status: true, message: 'Invalid Authentication' }) })));
+    expect(await new Fast2SmsWhatsappService(config(env) as any).sendOtp('9876000000', '314159', 'LOGIN')).toBe(false);
+    expect(log).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('FAST2SMS_WA_API_KEY'));
+    const messages = JSON.stringify([...warn.mock.calls, ...error.mock.calls]);
+    expect(messages).not.toContain('314159');
+    expect(messages).not.toContain('9876000000');
+    expect(messages).not.toContain('[DEV FALLBACK]');
+  });
 
   it('sends login OTP with the OTP template', async () => {
     const f = ok();

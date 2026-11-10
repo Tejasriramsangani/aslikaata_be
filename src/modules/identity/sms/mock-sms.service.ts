@@ -5,20 +5,20 @@ import { ISmsService } from './sms.interface.js';
 export class MockSmsService implements ISmsService {
   private readonly logger = new Logger('MockSmsService');
 
-  async sendOtp(mobile: string, otp: string, purpose: string): Promise<boolean> {
+  async sendOtp(_mobile: string, _otp: string, purpose: string): Promise<boolean> {
     if (process.env.NODE_ENV !== 'production') {
-      this.logger.log(`[DEV ONLY] SMS dispatched to ${mobile} for ${purpose} | OTP: ${otp}`);
+      this.logger.log(`[DEV ONLY] Mock OTP generated for ${purpose}; delivery skipped.`);
     } else {
-      this.logger.log(`SMS dispatched to ${mobile.slice(0, 4)}XXXXXX for ${purpose}`);
+      this.logger.log(`Mock OTP dispatch invoked for ${purpose}.`);
     }
     return true;
   }
 
-  async sendText(mobile: string, message: string): Promise<boolean> {
+  async sendText(_mobile: string, _message: string): Promise<boolean> {
     if (process.env.NODE_ENV !== 'production') {
-      this.logger.log(`[DEV ONLY] Text SMS to ${mobile}: ${message}`);
+      this.logger.log('[DEV ONLY] Mock text delivery skipped.');
     } else {
-      this.logger.log(`Text SMS dispatched to ${mobile.slice(0, 4)}XXXXXX`);
+      this.logger.log('Mock text dispatch invoked.');
     }
     return true;
   }

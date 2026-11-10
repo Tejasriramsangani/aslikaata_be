@@ -209,8 +209,18 @@ export class IdentityService implements OnModuleInit {
       resendCooldownUntil,
     });
 
-    // Send OTP via SMS service
-    const delivered = await this.smsService.sendOtp(dto.mobile, rawOtp, dto.purpose);
+    // Customer signup shares the LOGIN challenge/schema. Select its delivery template
+    // from backend account existence, never from a client-controlled signup flag.
+    let deliveryPurpose: string = dto.purpose;
+    if (dto.purpose === OtpPurpose.LOGIN && dto.loginRole !== UserRole.EMPLOYEE &&
+        this.configService.get<string>('FAST2SMS_WA_SIGNUP_OTP_ENABLED', 'false') === 'true' &&
+        this.configService.get<string>('SMS_PROVIDER') === 'fast2sms' &&
+        this.configService.get<string>('FAST2SMS_CHANNEL') === 'whatsapp') {
+      const account = await this.userModel.findOne({ mobile: { $in: [dto.mobile, `+91${dto.mobile}`] } });
+      if (!account) deliveryPurpose = 'SIGNUP';
+    }
+    // Provider rejection still invalidates the challenge and fails the OTP request.
+    const delivered = await this.smsService.sendOtp(dto.mobile, rawOtp, deliveryPurpose);
     if (!delivered && !this.isMockOtpMode()) {
       // The SMS never left (e.g. low Fast2SMS balance): drop the challenge so the user isn't
       // stuck behind the 60s resend cooldown for a code they never received.

@@ -73,7 +73,7 @@ export class DivisionService implements OnModuleInit {
   }
 
   async update(id: string, data: Partial<Division>): Promise<DivisionDocument> {
-    const division = await this.divisionModel.findByIdAndUpdate(id, data, { new: true });
+    const division = await this.divisionModel.findByIdAndUpdate(id, data, { returnDocument: 'after' });
     if (!division) {
       throw new NotFoundException(`Division with ID ${id} not found`);
     }

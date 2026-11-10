@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Interval } from '@nestjs/schedule';
 import { Model, type ClientSession } from 'mongoose';
@@ -10,6 +10,7 @@ import { EmployeeProfile, EmployeeProfileDocument } from '../employees/schemas/e
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { NotificationType } from '../notifications/schemas/notification.schema.js';
 import { planNotifications } from '../notifications/notification-templates.js';
+import { WhatsappNotificationsService, WHATSAPP_JOB } from '../notifications/whatsapp-notifications.service.js';
 
 @Injectable()
 export class OutboxService {
@@ -25,6 +26,7 @@ export class OutboxService {
     @InjectModel(EmployeeProfile.name)
     private readonly employeeProfileModel: Model<EmployeeProfileDocument>,
     private readonly notificationsService: NotificationsService,
+    @Optional() private readonly whatsapp?: WhatsappNotificationsService,
   ) {}
 
   /**
@@ -72,7 +74,7 @@ export class OutboxService {
    */
   async processPendingEvents(): Promise<{ processed: number; failed: number }> {
     const pendingEvents = await this.outboxModel
-      .find({ status: OutboxStatus.PENDING })
+      .find({ status: OutboxStatus.PENDING, eventType: { $ne: WHATSAPP_JOB } })
       .sort({ occurredAt: 1 })
       .limit(50);
 
@@ -84,7 +86,7 @@ export class OutboxService {
         event.status = OutboxStatus.PROCESSING;
         await event.save();
 
-        await this.dispatchEvent(event.eventType, event.payload);
+        await this.dispatchEvent(event.eventType, event.payload, (event as any).occurredAt);
 
         event.status = OutboxStatus.PUBLISHED;
         event.error = undefined;
@@ -112,7 +114,7 @@ export class OutboxService {
   /**
    * Dispatches domain event to designated real-time socket rooms per Section 8 / Task 6.2.1.
    */
-  private async dispatchEvent(eventType: string, payload: Record<string, any>) {
+  private async dispatchEvent(eventType: string, payload: Record<string, any>, occurredAt?: Date) {
     switch (eventType) {
       case 'pickup.requested':
         this.realtimeGateway.emitToAdminQueue('pickup.requested', payload);
@@ -176,6 +178,8 @@ export class OutboxService {
           this.realtimeGateway.emitToPickup(payload.pickupId, eventType, payload);
         }
     }
+    // Best-effort preparation is separate from push/socket delivery and never sends in a business request.
+    await this.whatsapp?.handleDomainEvent(eventType, payload, occurredAt);
   }
 
   /**

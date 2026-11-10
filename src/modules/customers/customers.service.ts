@@ -29,7 +29,7 @@ export class CustomersService {
         email: dto.email || null,
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true },
     );
   }
 
@@ -55,7 +55,7 @@ export class CustomersService {
       landmark: dto.landmark?.trim() || '',
       updatedAt: new Date(),
     };
-    const profile = await this.profileModel.findOneAndUpdate({ userId }, { $set: { lastLocation } }, { new: true });
+    const profile = await this.profileModel.findOneAndUpdate({ userId }, { $set: { lastLocation } }, { returnDocument: 'after' });
     return { saved: !!profile, lastLocation };
   }
 

@@ -59,7 +59,7 @@ export class Fast2SmsService implements ISmsService {
 
     const ok = await this.dispatch(mobile, payload, `OTP (${purpose})`);
     if (!ok && process.env.NODE_ENV !== 'production') {
-      this.logger.warn(`[DEV FALLBACK] OTP for +91 ${this.cleanMobile(mobile)}: [ ${otp} ]`);
+      this.logger.warn('[Fast2SMS] Delivery failed; no development OTP fallback is enabled for this provider.');
     }
     return ok;
   }
@@ -96,7 +96,7 @@ export class Fast2SmsService implements ISmsService {
       });
       const data: any = await response.json().catch(() => null);
 
-      if (data?.return === true) {
+      if (response.status >= 200 && response.status < 300 && data?.return === true) {
         this.logger.log(`[Fast2SMS] ${label} SMS sent to ${masked} (route ${payload.route}, request ${data.request_id})`);
         return true;
       }
