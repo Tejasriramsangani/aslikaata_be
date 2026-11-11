@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Interval } from '@nestjs/schedule';
@@ -13,12 +13,13 @@ import { UserRole } from '../../common/decorators/roles.decorator.js';
 import { SMS_SERVICE } from '../identity/sms/sms.interface.js';
 import type { ISmsService, WhatsAppDeliveryResult } from '../identity/sms/sms.interface.js';
 import { whatsappKeysForEvent, whatsappVariables } from './whatsapp-notification-plan.js';
+import { whatsappSetupReport } from './whatsapp-setup.js';
 import type { CustomerWhatsappKey } from './whatsapp-notification-plan.js';
 
 export const WHATSAPP_JOB = 'whatsapp.notification';
 /** Uses the existing outbox collection and its _id uniqueness; no schema/index migration. */
 @Injectable()
-export class WhatsappNotificationsService {
+export class WhatsappNotificationsService implements OnModuleInit {
   private readonly logger = new Logger(WhatsappNotificationsService.name);
   constructor(
     @InjectModel(OutboxEvent.name) private readonly jobs: Model<OutboxEventDocument>,
@@ -30,7 +31,21 @@ export class WhatsappNotificationsService {
     @Inject(SMS_SERVICE) private readonly sms: ISmsService,
   ) {}
 
+  /** Says at startup what is set up for WhatsApp and what is missing, so nothing silently fails to send. */
+  onModuleInit(): void {
+    const report = whatsappSetupReport((key) => this.config.get<string>(key));
+    if (!report.channelOn) return; // SMS / mock mode: nothing WhatsApp-related to report
+    const state = [
+      `login OTP ${report.otpReady ? 'ready' : 'NOT ready'}`,
+      `customer updates ${report.customerUpdatesOn ? 'ON' : 'OFF'}`,
+    ].join(', ');
+    if (report.missing.length === 0) this.logger.log(`WhatsApp: ${state}. All templates configured.`);
+    else this.logger.warn(`WhatsApp: ${state}. Not set in .env: ${report.missing.join(', ')}`);
+  }
+
   private enabled(): boolean {
+    // Customer updates need their own explicit opt-in: the flag, a cut-over date AND a dedicated WhatsApp key
+    // (FAST2SMS_WA_API_KEY). Login OTPs do not, so they keep working while these are being set up.
     return this.config.get('FAST2SMS_WA_NOTIFICATIONS_ENABLED') === 'true' &&
       this.config.get('SMS_PROVIDER') === 'fast2sms' && this.config.get('FAST2SMS_CHANNEL') === 'whatsapp' &&
       !!this.config.get<string>('FAST2SMS_WA_API_KEY')?.trim() &&

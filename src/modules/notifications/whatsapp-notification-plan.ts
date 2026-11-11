@@ -37,7 +37,9 @@ export function whatsappVariables(key: CustomerWhatsappKey, pickup: any, name: s
       if (pickup.status !== 'COMPLETED' || settlement?.status !== 'COMPLETED' ||
           !['CASH', 'UPI'].includes(settlement.type) || !Number.isFinite(weight) || weight <= 0 ||
           !Number.isSafeInteger(amount) || amount < 0 || amount !== pickup.totals?.totalAmount) return null;
-      return [...base, `${(weight / 1000).toFixed(3)} kg`, `INR ${(amount / 100).toFixed(2)}`, settlement.type];
+      // The approved template already prints the units: "Scrap Weight: {{3}} kg" and "Amount Paid: Rs. {{4}}".
+      // So send plain numbers here, or the customer would read "12.500 kg kg" and "Rs. INR 250.50".
+      return [...base, (weight / 1000).toFixed(3), (amount / 100).toFixed(2), settlement.type];
     }
   }
 }

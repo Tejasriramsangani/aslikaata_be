@@ -68,7 +68,7 @@ describe('approved WhatsApp template mapping and transport', () => {
     ['PICKUP_CONFIRMED', '42923', ['Unit Customer', 'UNIT-PICKUP', '10/11/2026', '10 AM - 12 PM']],
     ['EMPLOYEE_ASSIGNED', '42924', ['Unit Customer', 'UNIT-PICKUP', 'Test Partner']],
     ['PICKUP_CANCELLED', '42926', ['Unit Customer', 'UNIT-PICKUP']],
-    ['PICKUP_COMPLETED_PAYMENT', '42929', ['Unit Customer', 'UNIT-PICKUP', '12.500 kg', 'INR 250.50', 'CASH']],
+    ['PICKUP_COMPLETED_PAYMENT', '42929', ['Unit Customer', 'UNIT-PICKUP', '12.500', '250.50', 'CASH']],
   ] as const;
   for (const [key, messageId, variables] of mappings) it(`uses ${key} message and exact variable order`, async () => {
     const fetchMock = vi.fn(async (_url: string, _init: any) => ({ status: 200, json: async () => ({ status: true, request_id: 'unit-request' }) }));
@@ -132,7 +132,7 @@ describe('persisted lifecycle mapping', () => {
   });
   it('requires completed collection AND matching successful cash/UPI payment; donation is not paid', () => {
     const pickup = { ...pickupFixture(), status: 'COMPLETED' }, settlement = settlementFixture();
-    expect(whatsappVariables('PICKUP_COMPLETED_PAYMENT', pickup, 'Name', settlement)).toEqual(['Name', pickup.pickupCode, '12.500 kg', 'INR 250.50', 'CASH']);
+    expect(whatsappVariables('PICKUP_COMPLETED_PAYMENT', pickup, 'Name', settlement)).toEqual(['Name', pickup.pickupCode, '12.500', '250.50', 'CASH']);
     for (const patch of [{ status: 'PENDING' }, { status: 'FAILED' }, { type: 'DONATE' }, { amount: 1 }, { amount: -1 }])
       expect(whatsappVariables('PICKUP_COMPLETED_PAYMENT', pickup, 'Name', { ...settlement, ...patch })).toBeNull();
     expect(whatsappVariables('PICKUP_COMPLETED_PAYMENT', { ...pickup, status: 'SETTLED' }, 'Name', settlement)).toBeNull();
